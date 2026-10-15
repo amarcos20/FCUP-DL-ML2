@@ -1,0 +1,8 @@
+protocologo
+
+# dataset and generated artefacts (do not submit the dataset)
+data/
+models/
+*.part
+__pycache__/
+.ipynb_checkpoints/
