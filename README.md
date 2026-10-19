@@ -23,6 +23,7 @@ python -m src.make_split      # -> splits/split.csv (already committed; only rer
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
 | `notebooks/` | EDA and experiments |
 | `results/` | Metrics, figures, hidden-set predictions |
+| `reports/` | One report per notebook/script (what, why, findings, decisions) — in Portuguese |
 
 ## Evaluation protocol
 
