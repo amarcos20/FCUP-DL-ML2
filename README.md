@@ -10,6 +10,7 @@ conda create -n ml2 python=3.12 -y && conda activate ml2
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 python download_data.py       # ~590 MB -> data/circor/ (from PhysioNet's open S3 mirror)
 python -m src.make_split      # -> splits/split.csv (already committed; only rerun to regenerate)
+python -m src.features        # -> data/features/windows_w5_h2.5.pkl (MLP input; --win/--hop to change)
 ```
 
 ## Layout
@@ -20,6 +21,7 @@ python -m src.make_split      # -> splits/split.csv (already committed; only rer
 | `src/data.py` | Load patient table, list of recordings, split |
 | `src/metrics.py` | Weighted accuracy + patient-level confusion matrix (rows = predicted, cols = true) |
 | `src/make_split.py` | Fixed patient-level split |
+| `src/features.py` | Band-pass + windowing (5 s, 50% overlap) + per-window feature vectors for the MLP |
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
 | `notebooks/` | EDA and experiments |
 | `results/` | Metrics, figures, hidden-set predictions |
