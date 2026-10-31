@@ -2,7 +2,42 @@ protocologo
 
 # dataset and generated artefacts (do not submit the dataset)
 data/
-models/
 *.part
+example/
+
+# trained models / checkpoints (can be hundreds of MB)
+models/
+saved_models/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+*.keras
+*.joblib
+*.pkl
+
+# large arrays (features, predictions, embeddings)
+*.npy
+*.npz
+
+# training logs
+runs/
+lightning_logs/
+wandb/
+mlruns/
+
+# Python / Jupyter
 __pycache__/
+*.py[cod]
 .ipynb_checkpoints/
+
+# virtual environments
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
