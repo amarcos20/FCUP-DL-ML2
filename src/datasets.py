@@ -64,10 +64,11 @@ def encode(labels):
     return np.array([CLASS_TO_IDX[c] for c in labels], dtype=np.int64)
 
 
-def class_weights(y, n_classes=len(CLASSES)):
-    """Inverse-frequency weights (normalised to mean 1) for a weighted cross-entropy."""
+def class_weights(y, n_classes=len(CLASSES), power=1.0):
+    """Inverse-frequency weights (normalised to mean 1) for a weighted cross-entropy.
+    power < 1 softens them (0 = unweighted)."""
     counts = np.bincount(y, minlength=n_classes).astype(float)
-    w = counts.sum() / (n_classes * np.maximum(counts, 1))
+    w = (counts.sum() / (n_classes * np.maximum(counts, 1))) ** power
     return (w / w.mean()).astype(np.float32)
 
 
@@ -163,6 +164,9 @@ def aggregate_to_patient(windows, probs, how="mean"):
     how="mean": average over all windows of the patient.
     how="max_present": average windows -> recording, then the patient takes the recording
                        with the highest P(Present) (a murmur heard at one location is enough).
+    how="max": average windows -> recording, then per class the maximum over recordings for
+               Present and Unknown and the mean for Absent (scores for the hierarchical rule,
+               not a distribution).
     Returns a DataFrame indexed by patient_id with columns CLASSES.
     """
     p = pd.DataFrame(probs, columns=CLASSES)
@@ -171,5 +175,8 @@ def aggregate_to_patient(windows, probs, how="mean"):
     if how == "mean":
         return p.groupby("patient_id")[CLASSES].mean()
     rec = p.groupby(["patient_id", "recording"])[CLASSES].mean().reset_index()
+    if how == "max":
+        return rec.groupby("patient_id").agg(Present=("Present", "max"), Unknown=("Unknown", "max"),
+                                             Absent=("Absent", "mean"))[CLASSES]
     idx = rec.groupby("patient_id")["Present"].idxmax()
     return rec.loc[idx].set_index("patient_id")[CLASSES]

@@ -23,6 +23,7 @@ checkpoints/
 *.npz
 
 # training logs
+logs/
 runs/
 lightning_logs/
 wandb/
@@ -32,6 +33,7 @@ mlruns/
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
+AC2_Project_20262027.pdf
 
 # virtual environments
 .venv/

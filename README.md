@@ -13,6 +13,22 @@ python -m src.make_split      # -> splits/split.csv (already committed; only rer
 python -m src.prepare_data    # -> data/processed/ (MLP features + log-mels, ~1-3 min with all cores)
 ```
 
+## Training
+
+Both models read `data/processed/` and train the 5 CV folds (the test fold is never touched):
+
+```bash
+python -m src.mlp             # ~20 s on CPU          -> results/mlp/
+python -m src.cnn             # GPU if available; ~35 s/epoch/fold on CPU -> results/cnn/
+python -m src.cnn --epochs 50 --patience 8 --batch-size 128 --workers 8 --in-memory --name cnn_v2
+```
+
+Each run writes `oof.csv` (out-of-fold window probabilities, indexed by the row of `windows.csv`),
+`cv_summary.json` (config, nested-CV WA, confusion matrix, final thresholds), `history_fold*.csv`
+and `fold*.pt` (models, not committed). To train on another machine, copy `data/processed/`
+(or rerun `prepare_data`) and bring back `results/<name>/`; notebooks 03–05 with `TRAIN = False`
+only read those files.
+
 The dataset can be either in `data/circor/` (from `download_data.py`) or in
 `data/the-circor-digiscope-phonocardiogram-dataset-1.0.3/` (official zip extracted into `data/`);
 `src/data.py` finds whichever exists.
@@ -28,9 +44,13 @@ The dataset can be either in `data/circor/` (from `download_data.py`) or in
 | `src/datasets.py` | Load processed data, fold masks, train-only normalisation, torch `CNNWindows`, patient aggregation |
 | `src/metrics.py` | Weighted accuracy + patient-level confusion matrix (rows = predicted, cols = true) |
 | `src/make_split.py` | Fixed patient-level split |
+| `src/evaluate.py` | Patient scores, hierarchical decision rule, nested threshold tuning, save/load OOF predictions |
+| `src/mlp.py` / `src/cnn.py` | Models, training with early stopping, 5-fold CV, save/load fold models (CLI: `python -m src.mlp`) |
+| `src/baseline.py`, `src/features_tabular.py` | Classical baseline (RF / LR) on patient-level summary features |
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
-| `notebooks/` | `01_eda.ipynb` exploration (+ conclusions for pre-processing), `02_preprocessing.ipynb` pre-processing for MLP/CNN |
+| `notebooks/` | `01_eda`, `02_preprocessing`, `02_baseline`, `03_mlp`, `04_cnn`, `05_ensemble` (extra) |
 | `results/` | Metrics, figures, hidden-set predictions |
+| `reports/` | One report per notebook/script (what, why, findings, decisions) — in Portuguese |
 
 ## Evaluation protocol
 

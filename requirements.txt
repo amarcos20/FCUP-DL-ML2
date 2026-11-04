@@ -1,6 +1,5 @@
 # CPU build of PyTorch: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 torch
-torchaudio
 numpy
 pandas
 scipy
