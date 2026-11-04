@@ -29,6 +29,17 @@ and `fold*.pt` (models, not committed). To train on another machine, copy `data/
 (or rerun `prepare_data`) and bring back `results/<name>/`; notebooks 03–05 with `TRAIN = False`
 only read those files.
 
+## Report
+
+```bash
+conda install -c conda-forge tectonic   # LaTeX engine (once); latexmk -xelatex also works
+python reports/make_report.py           # -> reports/report.pdf (re-run after new results)
+```
+
+Text and figures of the EDA / pre-processing sections come from the saved outputs of notebooks
+01 and 02; the results section is recomputed from every `results/<model>/oof.csv`
+(names starting with `_` or ending in `_test` are skipped), with automatic comments.
+
 The dataset can be either in `data/circor/` (from `download_data.py`) or in
 `data/the-circor-digiscope-phonocardiogram-dataset-1.0.3/` (official zip extracted into `data/`);
 `src/data.py` finds whichever exists.
@@ -50,7 +61,8 @@ The dataset can be either in `data/circor/` (from `download_data.py`) or in
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
 | `notebooks/` | `01_eda`, `02_preprocessing`, `02_baseline`, `03_mlp`, `04_cnn`, `05_ensemble` (extra) |
 | `results/` | Metrics, figures, hidden-set predictions |
-| `reports/` | One report per notebook/script (what, why, findings, decisions) — in Portuguese |
+| `reports/` | `make_report.py` → `report.pdf`: EDA + pre-processing (from the notebooks) and model comparison (from `results/`), in Portuguese |
+| `scripts/` | `deucalion_train.sbatch` (SLURM job for MLP + CNN on one A100), `fetch_deucalion.sh` (bring `results/` back) |
 
 ## Evaluation protocol
 
