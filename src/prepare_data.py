@@ -79,7 +79,7 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
     win = pd.DataFrame(win_rows)
     rec = rec.drop(columns=["path"])
 
-    # --- integrity checks (as in the UrbanSound8K pipeline)
+    # --- integrity checks
     fpw = frames_per_window()
     assert len(win) == len(X_mlp), "windows / MLP rows mismatch"
     assert np.isfinite(X_mlp).all(), "NaN/inf in X_mlp"
