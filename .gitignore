@@ -39,7 +39,13 @@ AC2_Project_20262027.pdf
 .venv/
 venv/
 env/
+reports/figures
+reports/make_report.py
+report.tex
+
 
 # OS / editor
 .DS_Store
 Thumbs.db
+notes
+
