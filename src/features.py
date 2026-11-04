@@ -9,9 +9,9 @@ Pipeline for every recording (same for train / validation / test / hidden data):
 
 Design choices (see notebooks/01_eda.ipynb for the evidence behind them):
 - 4 kHz is the native sample rate of every file and >99% of the energy is below 1.5 kHz,
-  so we do not resample (unlike UrbanSound8K at 22.05 kHz).
-- Recordings last 5-65 s, so instead of a single crop/pad to a fixed length (as in the
-  UrbanSound8K project, where clips were <= 4 s) we cut each recording into 4 s windows.
+  so we do not resample.
+- Recordings last 5-65 s, so instead of a single crop/pad to a fixed length we cut each
+  recording into 4 s windows.
   4 s contains ~7 heart cycles at the median heart rate (103 bpm) and >= 3 at the lowest (46 bpm). Every window
   inherits the recording label; window predictions are aggregated back to recording and
   patient level at evaluation time.
@@ -155,8 +155,8 @@ def mlp_feature_names():
 def mlp_features(w, sr=AUDIO.sr):
     """Fixed-size summary vector of one window (see mlp_feature_names for the layout).
 
-    - MFCC mean/std + std of deltas and delta-deltas (as in the UrbanSound8K MLP, but with
-      std of the deltas: their mean over time is ~0 and carries no information).
+    - MFCC mean/std + std of deltas and delta-deltas (std rather than mean for the deltas:
+      their mean over time is ~0 and carries no information).
     - Spectral shape statistics (centroid, bandwidth, roll-off, flatness, ZCR, RMS):
       murmurs add broadband high-frequency energy between S1 and S2.
     - Relative energy in 5 frequency bands (log ratio).

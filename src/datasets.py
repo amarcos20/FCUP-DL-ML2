@@ -133,7 +133,7 @@ try:
 
         random_crop=True shifts each window by a random offset of up to +-half a window
         every epoch, so the network sees different crops of the same recording (cheap
-        time-shift augmentation; the UrbanSound8K project used noise + SpecAugment).
+        time-shift augmentation).
         """
 
         def __init__(self, d, mask, band_stats, label_col="rec_label", random_crop=False):

@@ -3,7 +3,6 @@ protocologo
 # dataset and generated artefacts (do not submit the dataset)
 data/
 *.part
-example/
 
 # trained models / checkpoints (can be hundreds of MB)
 models/
