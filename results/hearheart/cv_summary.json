@@ -1,0 +1,79 @@
+{
+  "wa_mean": 0.7495009992474218,
+  "wa_std": 0.029838273175898686,
+  "wa_pooled": 0.749476622470342,
+  "recall": {
+    "Present": 0.7762237762237763,
+    "Unknown": 0.16666666666666666,
+    "Absent": 0.8848920863309353
+  },
+  "confusion": [
+    [
+      111,
+      8,
+      50
+    ],
+    [
+      2,
+      9,
+      14
+    ],
+    [
+      30,
+      37,
+      492
+    ]
+  ],
+  "cfg": {
+    "mode": "recipe",
+    "wide": true,
+    "noise": true,
+    "spec_augment": true,
+    "seg_s": 15.0,
+    "patch_hop_s": 7.5,
+    "n_mels": 128,
+    "fmin": 25,
+    "fmax": 2000,
+    "n_fft": 512,
+    "win_ms": 50,
+    "hop_ms": 25,
+    "top_db": 80,
+    "snr_db": 15,
+    "p_noise": 0.5,
+    "p_specaug": 0.5,
+    "max_mask_pct": 0.1,
+    "n_masks": 2,
+    "class_weights": [
+      5.0,
+      3.0,
+      1.0
+    ],
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "batch_size": 24,
+    "max_epochs": 100,
+    "patience": 20,
+    "milestones": [
+      30,
+      50,
+      80
+    ],
+    "num_workers": 16,
+    "seed": 42
+  },
+  "thresholds": [
+    0.7,
+    0.375
+  ],
+  "hearheart_rule": {
+    "wa_per_fold": {
+      "0": 0.754325259515571,
+      "1": 0.7578947368421053,
+      "2": 0.721830985915493,
+      "3": 0.7958477508650519,
+      "4": 0.7867132867132867
+    },
+    "wa_mean": 0.7633224039703016,
+    "wa_pooled": 0.7634333565945569
+  }
+}

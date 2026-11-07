@@ -35,6 +35,10 @@ DEFAULT_CNN_CFG = dict(
     label_col="rec_label",
     num_workers=4,
     seed=42,
+    monitor="loss",          # early stopping on: "loss" (validation CE) or "wa" (patient-level WA, see train_cnn)
+    scheduler="none",        # "none" (constant lr) or "plateau" (ReduceLROnPlateau on the monitored metric)
+    plateau_patience=3,      # epochs without improvement before the lr is divided by 1/lr_factor
+    lr_factor=0.1,
 )
 
 
@@ -127,19 +131,36 @@ def predict_cnn_proba(model, ds, cfg):
     return np.concatenate(probs, axis=0)
 
 
-def train_cnn(ds_tr, ds_va, cfg, fold_idx=0):
-    """Weighted cross-entropy + Adam, early stopping on validation loss."""
+def train_cnn(ds_tr, ds_va, cfg, fold_idx=0, model_fn=None):
+    """Weighted cross-entropy + Adam, early stopping on a validation metric (best weights are kept).
+    model_fn(cfg) -> nn.Module swaps the network (default HeartMurmurCNN) keeping the same training.
+
+    cfg["monitor"]   "loss": validation cross-entropy per window (default).
+                     "wa":   patient-level weighted accuracy of the validation fold: window probabilities
+                             -> patient scores (src.evaluate.patient_scores) -> thresholds tuned on this fold.
+                             Aligned with the metric, but the fold that picks the epoch also tunes the
+                             thresholds, so this WA is optimistic (the reported CV WA is still nested).
+    cfg["scheduler"] "none": constant lr (default).
+                     "plateau": ReduceLROnPlateau on the monitored metric: lr x lr_factor after
+                             plateau_patience epochs without improvement (min 1e-6).
+    The validation WA is logged every epoch in both cases (column val_wa of the history)."""
+    monitor, maximise = cfg.get("monitor", "loss"), cfg.get("monitor", "loss") == "wa"
     torch.manual_seed(cfg["seed"] + fold_idx)
     np.random.seed(cfg["seed"] + fold_idx)
     dev = device()
 
-    model = HeartMurmurCNN(dropout=cfg["dropout"]).to(dev)
+    model = (model_fn(cfg) if model_fn else HeartMurmurCNN(dropout=cfg["dropout"])).to(dev)
     w = torch.from_numpy(class_weights(ds_tr.y, power=cfg["weight_power"])).to(dev)
     loss_fn = nn.CrossEntropyLoss(weight=w)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     train_loader, val_loader = loader(ds_tr, cfg, shuffle=True), loader(ds_va, cfg, shuffle=False)
+    scheduler = None
+    if cfg.get("scheduler", "none") == "plateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max" if maximise else "min", factor=cfg.get("lr_factor", 0.1),
+            patience=cfg.get("plateau_patience", 3), min_lr=1e-6)
 
-    best_loss, best_weights, wait, history = float("inf"), None, 0, []
+    best_score, best_weights, wait, history = (-np.inf if maximise else np.inf), None, 0, []
     print(f"\n>>> [Fold {fold_idx}] {len(ds_tr)} train windows, {len(ds_va)} val windows <<<", flush=True)
 
     for epoch in range(cfg["max_epochs"]):
@@ -157,7 +178,7 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0):
         train_loss /= len(train_loader) * cfg["batch_size"]
 
         model.eval()
-        val_loss, correct, total = 0.0, 0, 0
+        val_loss, correct, total, probs = 0.0, 0, 0, []
         with torch.no_grad():
             for x_v, y_v in val_loader:
                 x_v, y_v = x_v.to(dev), y_v.to(dev)
@@ -165,28 +186,40 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0):
                 val_loss += loss_fn(logits, y_v).item() * len(x_v)
                 correct += (logits.argmax(dim=1) == y_v).sum().item()
                 total += len(y_v)
+                probs.append(torch.softmax(logits, dim=1).cpu().numpy())
         val_loss /= total
         val_acc = correct / total
+        _, val_wa = tune_thresholds(patient_scores(ds_va.rows, np.concatenate(probs)))
+        lr = optimizer.param_groups[0]["lr"]
 
-        is_best = val_loss < best_loss
+        score = val_wa if maximise else val_loss
+        is_best = score > best_score if maximise else score < best_score
         star = " *" if is_best else ""
-        print(f"  Fold {fold_idx} | epoch {epoch+1:02d}/{cfg['max_epochs']} | train loss {train_loss:.4f} | "
-              f"val loss {val_loss:.4f} | val acc {val_acc:.4f}{star}", flush=True)
-        history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss, "val_acc": val_acc})
+        print(f"  Fold {fold_idx} | epoch {epoch+1:02d}/{cfg['max_epochs']} | lr {lr:.0e} | train loss {train_loss:.4f} | "
+              f"val loss {val_loss:.4f} | val acc {val_acc:.4f} | val WA {val_wa:.4f}{star}", flush=True)
+        history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss, "val_acc": val_acc,
+                        "val_wa": val_wa, "lr": lr})
 
         if is_best:
-            best_loss, best_weights, wait = val_loss, copy.deepcopy(model.state_dict()), 0
+            best_score, best_weights, wait = score, copy.deepcopy(model.state_dict()), 0
         else:
             wait += 1
             if wait >= cfg["patience"]:
                 print(f"  Fold {fold_idx} | early stopping at epoch {epoch+1}", flush=True)
                 break
+        if scheduler is not None:
+            scheduler.step(score)
 
     model.load_state_dict(best_weights)
     return model, pd.DataFrame(history)
 
 
-def cross_validate_cnn(d, cfg=DEFAULT_CNN_CFG, folds=range(5)):
+def best_epoch(hist, cfg):
+    """Row of the history whose weights were kept."""
+    return hist.val_wa.idxmax() if cfg.get("monitor", "loss") == "wa" else hist.val_loss.idxmin()
+
+
+def cross_validate_cnn(d, cfg=DEFAULT_CNN_CFG, folds=range(5), model_fn=None):
     """One model per CV fold (test patients, fold -1, are never used).
 
     Returns the validation windows of `folds` (rows of d.windows, original index kept),
@@ -199,12 +232,12 @@ def cross_validate_cnn(d, cfg=DEFAULT_CNN_CFG, folds=range(5)):
         band_stats = mel_band_stats(d, tr)
         ds_tr = CNNWindows(d, tr, band_stats, label_col=cfg["label_col"], random_crop=cfg["random_crop"])
         ds_va = CNNWindows(d, va, band_stats, label_col=cfg["label_col"])
-        model, hist = train_cnn(ds_tr, ds_va, cfg, fold_idx=k)
+        model, hist = train_cnn(ds_tr, ds_va, cfg, fold_idx=k, model_fn=model_fn)
         oof[va] = predict_cnn_proba(model, ds_va, cfg)
         runs.append({"fold": k, "model": model, "band_stats": band_stats, "history": hist})
-        best = hist.loc[hist.val_loss.idxmin()]
+        best = hist.loc[best_epoch(hist, cfg)]
         print(f"==> Fold {k}: best epoch {int(best.epoch)+1} | val loss {best.val_loss:.4f} | "
-              f"val acc {best.val_acc:.4f}\n", flush=True)
+              f"val acc {best.val_acc:.4f} | val WA {best.val_wa:.4f}\n", flush=True)
     return d.windows[dev_mask], oof[dev_mask], runs
 
 
@@ -246,6 +279,9 @@ def main():
     ap.add_argument("--weight-power", type=float, default=c["weight_power"])
     ap.add_argument("--no-spec-augment", action="store_true")
     ap.add_argument("--no-random-crop", action="store_true")
+    ap.add_argument("--monitor", choices=["loss", "wa"], default=c["monitor"], help="early-stopping metric")
+    ap.add_argument("--scheduler", choices=["none", "plateau"], default=c["scheduler"])
+    ap.add_argument("--plateau-patience", type=int, default=c["plateau_patience"])
     ap.add_argument("--workers", type=int, default=c["num_workers"])
     ap.add_argument("--in-memory", action="store_true", help="load mel.npy into RAM (~0.6 GB) instead of mmap")
     ap.add_argument("--folds", type=int, nargs="+", default=list(range(5)))
@@ -253,7 +289,8 @@ def main():
     a = ap.parse_args()
     cfg = c | dict(max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
                    weight_power=a.weight_power, spec_augment=not a.no_spec_augment,
-                   random_crop=not a.no_random_crop, num_workers=a.workers)
+                   random_crop=not a.no_random_crop, num_workers=a.workers, monitor=a.monitor,
+                   scheduler=a.scheduler, plateau_patience=a.plateau_patience)
     print(cfg, "| device:", device(), flush=True)
 
     d = load_processed(mmap=not a.in_memory)
