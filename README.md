@@ -57,9 +57,8 @@ The dataset can be either in `data/circor/` (from `download_data.py`) or in
 | `src/make_split.py` | Fixed patient-level split |
 | `src/evaluate.py` | Patient scores, hierarchical decision rule, nested threshold tuning, save/load OOF predictions |
 | `src/mlp.py` / `src/cnn.py` | Models, training with early stopping, 5-fold CV, save/load fold models (CLI: `python -m src.mlp`) |
-| `src/baseline.py`, `src/features_tabular.py` | Classical baseline (RF / LR) on patient-level summary features |
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
-| `notebooks/` | `01_eda`, `02_preprocessing`, `02_baseline`, `03_mlp`, `04_cnn`, `05_ensemble` (extra) |
+| `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn` |
 | `results/` | Metrics, figures, hidden-set predictions |
 | `reports/` | `make_report.py` → `report.pdf`: EDA + pre-processing (from the notebooks) and model comparison (from `results/`), in Portuguese |
 | `scripts/` | `deucalion_train.sbatch` (SLURM job for MLP + CNN on one A100), `fetch_deucalion.sh` (bring `results/` back) |
