@@ -10,9 +10,8 @@ evaluated with the PhysioNet Challenge 2022 weighted accuracy (WA: Present ×5, 
 | **CNN 2D** | log-mel 40 × 401 per 4 s window | 0.767 ± 0.021 | `src/cnn.py` |
 | **RNN** (bidirectional GRU) | the same window read as a sequence of 401 frames | 0.761 ± 0.037 | `src/rnn.py` |
 
-The MLP (`src/mlp.py`, WA 0.648) was the first approach. ResNet50 (`src/resnet.py`) and HearHeart
-(`src/hearheart.py`, winner of the Challenge) are re-implementations from the literature used only for
-comparison. Everything is summarised in **`reports/report.pdf`**.
+The MLP (`src/mlp.py`, WA 0.648) was the first approach. HearHeart (`src/hearheart.py`, winner of the
+Challenge) is a re-implementation from the literature used only for comparison. Everything is summarised in **`reports/report.pdf`**.
 
 ## Setup
 
@@ -77,13 +76,13 @@ from `results/`.
 | `src/cnn.py`, `src/rnn.py` | **The two classifiers**: models, training (shared loop in `cnn.py`), 5-fold CV |
 | `src/predict.py` | Predictions for new `.wav` files (bonus CSV) |
 | `src/mlp.py` | First approach (MLP on 99 features per window) |
-| `src/resnet.py`, `src/hearheart.py`, `src/prepare_hearheart.py` | Literature models (comparison only) |
-| `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn`, `05_resnet` (ResNet50 + HearHeart), `06_cnn_rnn` (the two classifiers, iterations, comparison with all models, test cell) |
+| `src/hearheart.py`, `src/prepare_hearheart.py` | Literature model (comparison only) |
+| `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn`, `05_hearheart` (Challenge winner vs our CNN), `06_cnn_rnn` (the two classifiers, iterations, comparison with all models, test cell) |
 | `results/<model>/` | `oof.csv`, `cv_summary.json`, `history_fold*.csv` of every run |
 | `reports/` | `make_report.py` → `report.pdf` |
 | `scripts/` | SLURM jobs for Deucalion and `fetch_deucalion.sh` |
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |
-| `literature/` | Papers of the two re-implemented models + `README.md` with the reviewed literature |
+| `literature/` | Paper of the re-implemented model + `README.md` with the reviewed literature |
 
 ## Evaluation protocol
 
