@@ -3,7 +3,6 @@ protocologo
 # dataset and generated artefacts (do not submit the dataset)
 data/
 *.part
-example/
 
 # trained models / checkpoints (can be hundreds of MB)
 models/
@@ -39,13 +38,9 @@ AC2_Project_20262027.pdf
 .venv/
 venv/
 env/
-reports/figures
-reports/make_report.py
-report.tex
-
 
 # OS / editor
 .DS_Store
-Thumbs.db
+Thumbs.ds
+reports/
 notes
-

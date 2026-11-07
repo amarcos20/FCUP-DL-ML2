@@ -1,4 +1,4 @@
-"""Patient-level evaluation shared by every model (MLP, CNN, ensemble).
+"""Patient-level evaluation shared by every model (MLP, CNN).
 
 Window probabilities -> patient scores (src.datasets.aggregate_to_patient) -> hierarchical
 decision rule, as in the Challenge: Present if p(Present) >= t_present, else Unknown if
@@ -9,7 +9,7 @@ out-of-fold predictions of the other folds and applied to fold k.
 
 Out-of-fold window probabilities are saved as results/<model>/oof.csv, indexed by the row of
 data/processed/windows.csv, so models trained elsewhere (e.g. on a GPU server) can be
-evaluated and ensembled here.
+evaluated here.
 """
 import json
 
@@ -68,29 +68,6 @@ def cv_report(pat):
                      "WA (t=0.5)": weighted_accuracy(val["murmur"], predict_rule(val, .5, .5)),
                      "WA (tuned)": weighted_accuracy(val["murmur"], pred[val.index])})
     return pd.DataFrame(rows).set_index("fold"), pred, report(pat["murmur"], pred)
-
-
-def blend(pat_a, pat_b, w):
-    """w * scores of pat_a + (1 - w) * scores of pat_b (same patients, same order)."""
-    p = pat_a.copy()
-    p[CLASSES] = w * pat_a[CLASSES] + (1 - w) * pat_b[CLASSES]
-    return p
-
-
-def cv_report_blend(pat_a, pat_b, weights=np.round(np.linspace(0, 1, 11), 2)):
-    """Nested CV for a two-model blend: for each fold k the weight AND the thresholds are
-    chosen on the other folds, then applied to fold k. Same outputs as cv_report, plus the
-    chosen weight per fold (column w)."""
-    rows, pred = [], pd.Series(index=pat_a.index, dtype=object)
-    for k in sorted(pat_a["fold"].unique()):
-        other = pat_a["fold"] != k
-        w = max(weights, key=lambda w: tune_thresholds(blend(pat_a, pat_b, w)[other])[1])
-        p = blend(pat_a, pat_b, w)
-        t, _ = tune_thresholds(p[other])
-        pred[~other] = predict_rule(p[~other], *t)
-        rows.append({"fold": k, "w": float(w), "t_present": t[0], "t_unknown": t[1],
-                     "WA (tuned)": weighted_accuracy(p["murmur"][~other], pred[~other])})
-    return pd.DataFrame(rows).set_index("fold"), pred, report(pat_a["murmur"], pred)
 
 
 def summary(table, rep):
