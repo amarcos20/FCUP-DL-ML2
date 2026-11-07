@@ -54,9 +54,6 @@ ALL_MODELS = {
     "cnn": ("CNN", "classificador 1", 106_083),
     "rnn": ("RNN (BiGRU)", "classificador 2", 115_587),
     "mlp": ("MLP", "primeira abordagem", 59_651),
-    "resnet50": ("ResNet50", "literatura (4.º lugar)", 23_507_907),
-    "dual_resnet50": ("Dual ResNet50", "literatura (4.º lugar)", 47_015_814),
-    "dual_resnet50_imagenet": ("Dual ResNet50 ImageNet", "literatura (4.º lugar)", 47_015_814),
     "hearheart_arch": ("HearHeart, só a rede", "literatura (1.º lugar)", 37_827),
     "hearheart": ("HearHeart, receita completa", "literatura (1.º lugar)", 38_027),
 }
@@ -341,8 +338,8 @@ os dois classificadores pedidos de entre MLP, CNN e RNN: uma **CNN** e uma **RNN
 | Recall *Present* / *Unknown* / *Absent* | {' / '.join(f"{c['rep']['recall'][k]:.2f}" for k in CLASSES)} | {' / '.join(f"{r['rep']['recall'][k]:.2f}" for k in CLASSES)} |
 
 Os dois modelos **empatam** e estão muito acima do valor mínimo a bater (prever sempre *Present*:
-{ds['base']['Present']:.2f}). Também comparámos com dois modelos do PhysioNet Challenge 2022, incluindo o vencedor,
-reimplementados nas mesmas condições: nenhum ganha à nossa CNN.
+{ds['base']['Present']:.2f}). Também comparámos com o modelo vencedor do PhysioNet Challenge 2022, reimplementado nas
+mesmas condições: não ganha à nossa CNN.
 """)
 
 
@@ -440,7 +437,7 @@ em que a energia aparece, que é o que define um sopro.
 | Paragem (*early stopping*) | quando a perda de validação não melhora durante {c['patience']} épocas; ficam os pesos da melhor época |
 | Regularização | dropout 0.3, weight decay, BatchNorm (CNN) |
 | Aumento de dados | deslocamento aleatório da janela no tempo e *SpecAugment* (uma máscara de frequência e uma de tempo por batch) |
-| Transfer learning | não (testado numa ResNet50 com pesos ImageNet: não funcionou, ver secção 6) |
+| Transfer learning | não (não há modelos pré-treinados em sons cardíacos; os dois modelos são pequenos e treinam do zero em ~10 min) |
 | Hardware | uma GPU A100 do Deucalion; ~10 min por modelo para os 5 folds |
 
 **Como escolhemos os hiperparâmetros.** Com ~600 pacientes de treino por fold, procurar muitas combinações na
@@ -530,10 +527,6 @@ limiares).
 """)
 
 
-def mean_best_epoch(r):
-    return np.mean([best_epoch(h, r["cfg"]) + 1 for h in r["hist"].values()])
-
-
 def sec_literature(res):
     base = res["cnn"]["wa"]
     hh_rule = json.loads((RESULTS_DIR / "hearheart" / "cv_summary.json").read_text())["hearheart_rule"]["wa_mean"]
@@ -546,24 +539,18 @@ def sec_literature(res):
     return md(f"""
 # Comparação com a literatura
 
-Para saber se os nossos modelos estão ao nível do estado da arte, reimplementámos dois modelos do PhysioNet
-Challenge 2022 e treinámo-los **com os nossos folds e a nossa avaliação**, para a comparação ser justa. (Os números
-publicados no Challenge vêm de um conjunto de teste escondido e não se comparam diretamente.)
-
-- **ResNet50** (Walker et al., 4.º lugar): uma CNN muito profunda, 220× maior do que a nossa. Três versões: só a
-  rede; dividida em dois classificadores binários (*Present* vs resto, *Unknown* vs resto); e com pesos pré-treinados
-  no ImageNet.
-- **HearHeart** (Lu et al., 1.º lugar), reimplementado a partir do código oficial: uma CNN ainda mais pequena do que
-  a nossa. Duas versões: só a rede com o nosso treino; e a receita completa deles (segmentos de 15 s, frequências até
-  2 kHz, descida da lr, pesos de classe 5/3/1).
+Para saber se os nossos modelos estão ao nível do estado da arte, reimplementámos o modelo vencedor do
+PhysioNet Challenge 2022, **HearHeart** (Lu et al.), a partir do código oficial, e treinámo-lo **com os nossos folds e
+a nossa avaliação**, para a comparação ser justa. (Os números publicados no Challenge vêm de um conjunto de teste
+escondido e não se comparam diretamente.) É uma CNN ainda mais pequena do que a nossa. Testámos duas versões: só a
+rede, com o nosso treino; e a receita completa deles (segmentos de 15 s, frequências até 2 kHz, descida da lr, pesos
+de classe 5/3/1).
 
 | Modelo | Papel | Parâmetros | WA | Folds a ganhar à CNN | Recall P / U |
 |---|---|---|---|---|---|
 {chr(10).join(rows)}
 
 **O que aprendemos:**
-- **Mais capacidade não ajuda:** as ResNet50 sobreajustam mais cedo (melhor época
-  {mean_best_epoch(res['resnet50']):.0f} contra {mean_best_epoch(res['cnn']):.0f} na CNN, em média) e não ganham. O pré-treino no ImageNet falhou: filtros aprendidos em fotografias não servem para estes espectrogramas.
 - **A nossa CNN está ao nível do vencedor do Challenge:** a receita completa do HearHeart fica muito perto da CNN
   (e chega a {hh_rule:.3f} com a regra de decisão deles), mas não a ultrapassa. O ganho deles vem da estratégia de treino e
   não da rede: com o nosso treino, a rede deles fica pior.
@@ -601,8 +588,8 @@ def sec_conclusions(res):
    acrescenta.
 2. **O que mais pesou foram as decisões sobre os dados:** rótulos por gravação, janelas com ciclos completos,
    agregação pelo máximo por paciente e limiares afinados para a métrica.
-3. **Os nossos modelos estão ao nível do estado da arte:** nem uma rede 220× maior nem a receita do vencedor do
-   Challenge os ultrapassam nas mesmas condições.
+3. **Os nossos modelos estão ao nível do estado da arte:** a receita do vencedor do Challenge, reimplementada nas
+   mesmas condições, não os ultrapassa.
 4. **Limitações:** a classe *Unknown* continua difícil (rótulo ruidoso, poucos exemplos); cada configuração foi
    treinada com uma só seed; não houve pesquisa de hiperparâmetros (de propósito); e o early stopping usa o fold
    onde depois se mede a WA, o que torna os números de validação ligeiramente otimistas.
@@ -642,8 +629,8 @@ pacientes por fold levaria a escolher a que teve sorte.
 movimento). Tem poucos exemplos, o rótulo é inconsistente (há crianças com rótulos diferentes nas duas visitas) e
 vale só ~11 % do peso da métrica.
 
-**Porque não usaram uma rede maior ou pré-treinada?** Testámos: a ResNet50 (220× maior) sobreajusta e não ganha, e o
-pré-treino no ImageNet falhou.
+**Os vossos modelos são bons comparados com o estado da arte?** Reimplementámos o vencedor do Challenge 2022
+(HearHeart) e treinámo-lo nas mesmas condições: fica ao nível da nossa CNN, sem a ultrapassar.
 
 **Quais são os resultados finais?** CNN {pm(c['wa'])} e RNN {pm(r['wa'])} de WA em validação cruzada; o teste final
 faz-se uma única vez, no fim.

@@ -33,7 +33,7 @@ Two modes, to separate the two effects (both evaluated with our folds and src.ev
 
 Patient-level evaluation is ours (max over recordings + two tuned thresholds, nested CV), so the numbers
 are comparable with the other models; the recording probabilities are copied to every window of the
-recording so that oof.csv has the same format as src.cnn / src.resnet. Their own patient rule (Present if
+recording so that oof.csv has the same format as src.cnn / src.rnn. Their own patient rule (Present if
 any recording is Present, Absent if all are Absent, else Unknown) is reported as an extra metric.
 
 Usage (needs data/processed/waves_int16.npy from src.prepare_hearheart for --mode recipe):

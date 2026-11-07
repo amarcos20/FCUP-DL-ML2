@@ -108,7 +108,8 @@ def predict(wav_dir, model="cnn"):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wav-dir", required=True, help="folder with the .wav files (searched recursively)")
-    ap.add_argument("--model", default="cnn", help="folder under results/ with fold*.pt (cnn or rnn)")
+    ap.add_argument("--model", default="cnn", choices=["cnn", "rnn"],
+                    help="one of the two classifiers of the project (fold models in results/<model>/)")
     ap.add_argument("--out", help="output CSV (default predictions_<model>.csv)")
     ap.add_argument("--probs", action="store_true", help="also save the patient scores")
     a = ap.parse_args()
