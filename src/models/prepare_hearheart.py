@@ -1,4 +1,4 @@
-"""Raw waveforms for the HearHeart recipe (src.hearheart --mode recipe).
+"""Raw waveforms for the HearHeart recipe (src.models.hearheart --mode recipe).
 
 The winner of the PhysioNet Challenge 2022 (Lu et al., team HearHeart) takes a random 15 s crop of
 each recording, adds noise to the raw signal and only then computes the mel spectrogram (128 bands,
@@ -7,7 +7,7 @@ reproduce that, so this script stores the original audio instead: every .wav (16
 concatenated losslessly as int16, in the order of data/processed/recordings.csv.
 
 Usage (after src.prepare_data):
-    python -m src.prepare_hearheart
+    python -m src.models.prepare_hearheart
 
 Outputs (data/processed/):
     waves_int16.npy   (total_samples,) int16 -- divide by 32768 to get the [-1, 1] float signal
