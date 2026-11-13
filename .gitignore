@@ -46,3 +46,6 @@ reports/
 notes
 literature/not_implemented
 urbansound8kac2-main
+
+# hidden test set zip (lives in data/hidden/)
+*.zip

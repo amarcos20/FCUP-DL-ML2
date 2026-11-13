@@ -37,8 +37,8 @@ recording so that oof.csv has the same format as src.cnn / src.rnn. Their own pa
 any recording is Present, Absent if all are Absent, else Unknown) is reported as an extra metric.
 
 Usage (needs data/processed/waves_int16.npy from src.prepare_hearheart for --mode recipe):
-    python -m src.hearheart --mode arch     # -> results/hearheart_arch
-    python -m src.hearheart --mode recipe   # -> results/hearheart
+    python -m src.hearheart --mode arch     # -> results/experiments/hearheart_arch
+    python -m src.hearheart --mode recipe   # -> results/experiments/hearheart
 """
 import argparse
 import copy
@@ -57,7 +57,7 @@ from src.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device
 from src.cnn import save_runs as save_cnn_runs
 from src.data import CLASSES
 from src.datasets import CNNWindows, PROC_DIR, encode, load_processed
-from src.evaluate import RESULTS_DIR, cv_report, patient_scores, save_oof, summary, tune_thresholds
+from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 from src.metrics import weighted_accuracy
 
 SR = 4000
@@ -380,7 +380,7 @@ def save_recipe_runs(runs, cfg, out_dir):
         r["history"].to_csv(out_dir / f"history_fold{r['fold']}.csv", index=False)
 
 
-def load_runs(out_dir=RESULTS_DIR / "hearheart"):
+def load_runs(out_dir=result_dir("hearheart")):
     """Returns (runs, cfg); works for both modes."""
     runs, cfg = [], None
     for p in sorted(out_dir.glob("fold*.pt")):

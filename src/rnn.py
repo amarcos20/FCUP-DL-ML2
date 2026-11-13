@@ -32,7 +32,7 @@ from src.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device, predict_cnn_pro
 from src.cnn import save_runs
 from src.data import CLASSES
 from src.datasets import CNNWindows, load_processed
-from src.evaluate import RESULTS_DIR, cv_report, patient_scores, save_oof, summary, tune_thresholds
+from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 
 DEFAULT_RNN_CFG = DEFAULT_CNN_CFG | dict(
     cell="gru", hidden=64, layers=2, bidirectional=True, pool="mean",
@@ -75,7 +75,7 @@ def n_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
-def load_runs(out_dir=RESULTS_DIR / "rnn"):
+def load_runs(out_dir=result_dir("rnn")):
     """Returns (runs, cfg)."""
     runs, cfg = [], None
     for p in sorted(out_dir.glob("fold*.pt")):

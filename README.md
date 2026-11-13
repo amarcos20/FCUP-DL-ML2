@@ -31,7 +31,7 @@ The dataset can be either in `data/circor/` or in `data/the-circor-digiscope-pho
 ```bash
 python -m src.cnn --epochs 50 --patience 8 --name cnn   # ~10 min on one GPU  -> results/cnn/
 python -m src.rnn --name rnn                            # ~10 min on one GPU  -> results/rnn/
-python -m src.mlp                                       # ~20 s on CPU        -> results/mlp/
+python -m src.mlp                                       # ~20 s on CPU        -> results/experiments/mlp/
 ```
 
 Iterations (all rejected, see the report): `--scheduler plateau`, `--monitor wa` (CNN and RNN),
@@ -48,10 +48,35 @@ and `fold*.pt` (fold models, not committed).
 python -m src.predict --wav-dir path/to/hidden_wavs --model cnn --out predictions.csv
 ```
 
+**Hidden test set of the bonus** (100 patients, CC2015, no labels): the zip given by the teachers is
+extracted to `data/hidden/CirCor_test_students/` (gitignored, like all data). Its README asks for the
+template `PLX_GYY_test_results.csv` (columns `ID,Murmur`, all 100 rows), which takes precedence over the
+`patient_id,murmur` example of the project PDF. Our submission (group PL2 G08, CNN):
+
+```bash
+D=data/hidden/CirCor_test_students
+python -m src.predict --wav-dir $D/test_data --template $D/PLX_GYY_test_results.csv \
+    --out submission/PL2_G08_test_results.csv --probs
+```
+
+`--template` keeps the template's row order and stops if any patient is missing. The patient scores
+(`P(Present)`, `P(Unknown)`) go to `submission/PL2_G08_test_results_scores.csv`, for checking only.
+
 Files must be named `<patient_id>_<location>.wav` (CirCor convention). The recordings go through the
 same pre-processing as in training, the 5 fold models are averaged, recordings are aggregated per patient
 (maximum over locations) and the final thresholds of `results/<model>/cv_summary.json` are applied.
 Output: `patient_id,murmur`, one row per patient. Needs the `fold*.pt` of the chosen model.
+
+## Submission checklist (project PDF, §5 — Moodle, 30 Nov 2026 23:59)
+
+| Deliverable | Where | Status |
+|---|---|---|
+| Code + instructions (no dataset files) | `src/`, `notebooks/`, this README | done |
+| WA + patient-level confusion matrix per classifier (CV mean ± std) | `results/{cnn,rnn}/cv_summary.json`, `reports/report.pdf` | done |
+| Held-out test fold (fold −1), evaluated **once** with the frozen models | `RUN_TEST` cell of `notebooks/06_cnn_rnn.ipynb` | to do |
+| Predictions on the hidden data (.csv) | `submission/PL2_G08_test_results.csv` | done |
+| Slides (PDF, 10 min + appendix) | — | to do |
+| Self-assessment form | — | to do |
 
 ## Report
 
@@ -75,10 +100,13 @@ from `results/`.
 | `src/evaluate.py` / `src/metrics.py` | Patient scores, hierarchical rule, nested threshold tuning / weighted accuracy |
 | `src/cnn.py`, `src/rnn.py` | **The two classifiers**: models, training (shared loop in `cnn.py`), 5-fold CV |
 | `src/predict.py` | Predictions for new `.wav` files (bonus CSV) |
+| `submission/` | Files to upload to Moodle (hidden-set predictions) |
 | `src/mlp.py` | First approach (MLP on 99 features per window) |
 | `src/hearheart.py`, `src/prepare_hearheart.py` | Literature model (comparison only) |
 | `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn`, `05_hearheart` (Challenge winner vs our CNN), `06_cnn_rnn` (the two classifiers, iterations, comparison with all models, test cell) |
-| `results/<model>/` | `oof.csv`, `cv_summary.json`, `history_fold*.csv` of every run |
+| `results/cnn/`, `results/rnn/` | **Final models**: `oof.csv`, `cv_summary.json` (WA, confusion matrix, thresholds), `history_fold*.csv` |
+| `results/experiments/` | Everything else: MLP, rejected iterations, HearHeart (see its README) |
+| `results/eda/`, `results/preprocessing/` | Figures of notebooks 01 and 02 |
 | `reports/` | `make_report.py` → `report.pdf` |
 | `scripts/` | SLURM jobs for Deucalion and `fetch_deucalion.sh` |
 | `splits/split.csv` | `patient_id, murmur, group, fold` — fold `-1` = test, `0..4` = CV folds |

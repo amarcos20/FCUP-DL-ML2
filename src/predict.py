@@ -20,6 +20,12 @@ Usage:
 
 Output: CSV with one row per patient and the columns patient_id,murmur (the format of the bonus).
 --probs also saves the patient scores (P(Present), P(Unknown)) next to it, for checking.
+
+Hidden test set of the bonus (data/hidden/CirCor_test_students, see the README): the submission must follow
+the template PLX_GYY_test_results.csv (columns ID,Murmur, all 100 rows). --template fills that file in
+its own row order and stops if a patient of the template has no prediction:
+    python -m src.predict --wav-dir data/hidden/CirCor_test_students/test_data \\
+        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL2_G08_test_results.csv
 """
 import argparse
 import json
@@ -33,7 +39,7 @@ from tqdm import tqdm
 from src.cnn import device
 from src.data import CLASSES
 from src.datasets import aggregate_to_patient
-from src.evaluate import RESULTS_DIR, predict_rule
+from src.evaluate import RESULTS_DIR, result_dir, predict_rule
 from src.features import AUDIO, MEL, frames_per_window, load_audio, logmel, window_starts
 
 
@@ -64,7 +70,7 @@ def recording_windows(path):
 
 def load_model_runs(model):
     """Fold models (each with its band statistics) and the final thresholds of results/<model>."""
-    folder = RESULTS_DIR / model
+    folder = result_dir(model)
     if model.startswith("rnn"):
         from src.rnn import load_runs
         runs, _ = load_runs(folder)
@@ -112,12 +118,22 @@ def main():
                     help="one of the two classifiers of the project (fold models in results/<model>/)")
     ap.add_argument("--out", help="output CSV (default predictions_<model>.csv)")
     ap.add_argument("--probs", action="store_true", help="also save the patient scores")
+    ap.add_argument("--template", help="submission template (columns ID,Murmur): output in its format and order")
     a = ap.parse_args()
     out = Path(a.out or f"predictions_{a.model}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
     print(f"model: results/{a.model} | device: {device()} | sample rate {AUDIO.sr} Hz", flush=True)
 
     pat, labels = predict(a.wav_dir, a.model)
-    labels.rename_axis("patient_id").reset_index().to_csv(out, index=False)
+    if a.template:
+        sub = pd.read_csv(a.template, dtype={"ID": str})[["ID"]]
+        sub["Murmur"] = sub["ID"].map(labels)
+        missing = sub.loc[sub["Murmur"].isna(), "ID"].tolist()
+        if missing:
+            raise SystemExit(f"{len(missing)} patients of the template have no recordings: {missing}")
+        sub.to_csv(out, index=False)
+    else:
+        labels.rename_axis("patient_id").reset_index().to_csv(out, index=False)
     print(f"{len(labels)} patients -> {out}")
     print(labels.value_counts().reindex(CLASSES, fill_value=0).to_string())
     if a.probs:
