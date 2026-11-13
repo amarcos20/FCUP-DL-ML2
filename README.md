@@ -73,7 +73,7 @@ Output: `patient_id,murmur`, one row per patient. Needs the `fold*.pt` of the ch
 |---|---|---|
 | Code + instructions (no dataset files) | `src/`, `notebooks/`, this README | done |
 | WA + patient-level confusion matrix per classifier (CV mean ± std) | `results/{cnn,rnn}/cv_summary.json`, `reports/report.pdf` | done |
-| Held-out test fold (fold −1), evaluated **once** with the frozen models | `RUN_TEST` cell of `notebooks/06_cnn_rnn.ipynb` | to do |
+| Held-out test fold (fold −1, 189 patients), evaluated **once** with the frozen models (tag `modelo-final`) | `RUN_TEST` cell of `notebooks/06_cnn_rnn.ipynb` | done: CNN 0.751, RNN 0.789 |
 | Predictions on the hidden data (.csv) | `submission/PL2_G08_test_results.csv` | done |
 | Slides (PDF, 10 min + appendix) | — | to do |
 | Self-assessment form | — | to do |
