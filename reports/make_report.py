@@ -199,7 +199,7 @@ def attention_lift(d):
     """Attention mass / time share per heart-cycle phase for the RNN with attention (validation windows
     with >= 80 % annotated frames, 150 Present + 150 Absent windows per fold, model of that fold)."""
     import torch
-    from src.rnn import load_runs
+    from src.models.rnn import load_runs
     runs, _ = load_runs(result_dir("rnn_att"))
     rows = []
     for r in runs:

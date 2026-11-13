@@ -5,7 +5,7 @@ data/
 *.part
 
 # trained models / checkpoints (can be hundreds of MB)
-models/
+/models/
 saved_models/
 checkpoints/
 *.pth

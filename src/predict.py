@@ -25,7 +25,7 @@ Hidden test set of the bonus (data/hidden/CirCor_test_students, see the README):
 the template PLX_GYY_test_results.csv (columns ID,Murmur, all 100 rows). --template fills that file in
 its own row order and stops if a patient of the template has no prediction:
     python -m src.predict --wav-dir data/hidden/CirCor_test_students/test_data \\
-        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL2_G08_test_results.csv
+        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL3_G08_test_results.csv
 """
 import argparse
 import json
@@ -36,7 +36,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from src.cnn import device
+from src.models.cnn import device
 from src.data import CLASSES
 from src.datasets import aggregate_to_patient
 from src.evaluate import RESULTS_DIR, result_dir, predict_rule
@@ -72,10 +72,10 @@ def load_model_runs(model):
     """Fold models (each with its band statistics) and the final thresholds of results/<model>."""
     folder = result_dir(model)
     if model.startswith("rnn"):
-        from src.rnn import load_runs
+        from src.models.rnn import load_runs
         runs, _ = load_runs(folder)
     else:
-        from src.cnn import load_runs
+        from src.models.cnn import load_runs
         runs = load_runs(folder)
     if not runs:
         raise SystemExit(f"no fold models (fold*.pt) in {folder}")

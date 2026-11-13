@@ -5,7 +5,7 @@ are the recording-level labels (`rec_label`). Window predictions are turned into
 prediction per patient by src.evaluate.
 
 Usage (trains the 5 CV folds, saves results/experiments/mlp/{oof.csv, cv_summary.json, fold*.pt}):
-    python -m src.mlp [--epochs 100 --patience 10 --lr 1e-3 ...]
+    python -m src.models.mlp [--epochs 100 --patience 10 --lr 1e-3 ...]
 """
 import argparse
 import copy

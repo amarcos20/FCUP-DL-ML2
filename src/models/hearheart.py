@@ -10,7 +10,7 @@ Two modes, to separate the two effects (both evaluated with our folds and src.ev
   --mode arch    (B: effect of the architecture)
       their network on OUR input and training: log-mel 40 x 401 windows of 4 s, per-band standardisation,
       our augmentation, class weights, Adam 1e-3 / wd 1e-4, early stopping on validation loss
-      (src.cnn.cross_validate_cnn with model_fn). No wide branch (our windows have no hand features).
+      (src.models.cnn.cross_validate_cnn with model_fn). No wide branch (our windows have no hand features).
 
   --mode recipe  (A: their whole recipe)
       * input: random 15 s crop of the raw recording (zero-padded if shorter), 128 mel bands 25-2000 Hz,
@@ -33,12 +33,12 @@ Two modes, to separate the two effects (both evaluated with our folds and src.ev
 
 Patient-level evaluation is ours (max over recordings + two tuned thresholds, nested CV), so the numbers
 are comparable with the other models; the recording probabilities are copied to every window of the
-recording so that oof.csv has the same format as src.cnn / src.rnn. Their own patient rule (Present if
+recording so that oof.csv has the same format as src.models.cnn / src.models.rnn. Their own patient rule (Present if
 any recording is Present, Absent if all are Absent, else Unknown) is reported as an extra metric.
 
-Usage (needs data/processed/waves_int16.npy from src.prepare_hearheart for --mode recipe):
-    python -m src.hearheart --mode arch     # -> results/experiments/hearheart_arch
-    python -m src.hearheart --mode recipe   # -> results/experiments/hearheart
+Usage (needs data/processed/waves_int16.npy from src.models.prepare_hearheart for --mode recipe):
+    python -m src.models.hearheart --mode arch     # -> results/experiments/hearheart_arch
+    python -m src.models.hearheart --mode recipe   # -> results/experiments/hearheart
 """
 import argparse
 import copy
@@ -53,8 +53,8 @@ import torch.nn as nn
 from torch.nn import init
 from torch.utils.data import DataLoader, Dataset
 
-from src.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device
-from src.cnn import save_runs as save_cnn_runs
+from src.models.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device
+from src.models.cnn import save_runs as save_cnn_runs
 from src.data import CLASSES
 from src.datasets import CNNWindows, PROC_DIR, encode, load_processed
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
@@ -396,7 +396,7 @@ def predict_ensemble_hearheart(runs, d, mask, cfg):
     """Window probabilities for d.windows[mask], averaged over the fold models."""
     win = d.windows[mask]
     if cfg["mode"] == "arch":
-        from src.cnn import predict_cnn_proba
+        from src.models.cnn import predict_cnn_proba
         return np.mean([predict_cnn_proba(r["model"], CNNWindows(d, mask, r["band_stats"]), cfg | {"num_workers": 0})
                         for r in runs], axis=0)
     waves, widx = load_waves()

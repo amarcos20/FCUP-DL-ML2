@@ -1,4 +1,4 @@
-"""RNN on the same log-mel windows as src.cnn: each 4 s window is read as a sequence of 401 frames
+"""RNN on the same log-mel windows as src.models.cnn: each 4 s window is read as a sequence of 401 frames
 (10 ms each), every frame a vector of 40 mel bands.
 
 Why an RNN: the heart cycle is a sequence (S1 -> systole -> S2 -> diastole) and a murmur is defined by
@@ -6,7 +6,7 @@ Why an RNN: the heart cycle is a sequence (S1 -> systole -> S2 -> diastole) and 
 the frames in order and keeps a memory of what came before; a bidirectional one also sees what comes after,
 so at every frame it knows where it is in the cycle.
 
-Everything except the network is the CNN pipeline (src.cnn.cross_validate_cnn with model_fn): per-band
+Everything except the network is the CNN pipeline (src.models.cnn.cross_validate_cnn with model_fn): per-band
 standardisation with training statistics, SpecAugment + random time shift, recording-level labels, class-
 weighted cross-entropy, Adam, early stopping on validation loss, patient aggregation and nested threshold
 tuning (src.evaluate). So CNN vs RNN compares only "local time-frequency patterns" vs "sequence model".
@@ -18,9 +18,9 @@ layers) -> one vector per window by pooling the outputs over time -> dropout -> 
                     gives the weights, so the network can focus on the frames with a murmur (systole)
 
 Usage (5 CV folds, saves results/<name>/{oof.csv, cv_summary.json, history_fold*.csv, fold*.pt}):
-    python -m src.rnn                                   # iteration 1: BiGRU, mean pooling -> results/rnn
-    python -m src.rnn --pool attention --name rnn_att   # iteration 2
-    python -m src.rnn --cell lstm --name rnn_lstm
+    python -m src.models.rnn                                   # iteration 1: BiGRU, mean pooling -> results/rnn
+    python -m src.models.rnn --pool attention --name rnn_att   # iteration 2
+    python -m src.models.rnn --cell lstm --name rnn_lstm
 """
 import argparse
 
@@ -28,8 +28,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device, predict_cnn_proba
-from src.cnn import save_runs
+from src.models.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device, predict_cnn_proba
+from src.models.cnn import save_runs
 from src.data import CLASSES
 from src.datasets import CNNWindows, load_processed
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
@@ -43,6 +43,10 @@ DEFAULT_RNN_CFG = DEFAULT_CNN_CFG | dict(
 
 
 class HeartMurmurRNN(nn.Module):
+    """Final configuration (DEFAULT_RNN_CFG, 115 587 parameters): 2 stacked bidirectional GRU layers with 64
+    hidden units per direction (dropout 0.3 between them), input 40 mel bands per frame, 128-dim output per
+    frame; mean over the 401 frames -> dropout 0.3 -> linear 3 (logits Present / Unknown / Absent)."""
+
     def __init__(self, n_mels=40, cell="gru", hidden=64, layers=2, bidirectional=True, pool="mean",
                  rnn_dropout=0.3, dropout=0.3, n_out=len(CLASSES)):
         super().__init__()

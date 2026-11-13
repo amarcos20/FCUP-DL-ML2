@@ -7,7 +7,20 @@ absolute level in dB (informative for noisy 'Unknown' recordings, 01_eda §8) is
 Targets are the recording-level labels (`rec_label`); one prediction per patient via src.evaluate.
 
 Usage (trains the 5 CV folds, saves results/cnn/{oof.csv, cv_summary.json, fold*.pt}):
-    python -m src.cnn [--epochs 30 --patience 5 --batch-size 128 --workers 4 ...]
+    python -m src.models.cnn                     # defaults = the final model in results/cnn (50 epochs, patience 8)
+    python -m src.models.cnn --scheduler plateau --name cnn_plateau   # an iteration (see results/experiments)
+
+Network (HeartMurmurCNN, 106 083 parameters):
+    [B, 1, 40, 401] -> 4 x (conv 3x3 stride 2 + BatchNorm + ReLU), 16 -> 32 -> 64 -> 128 maps, each block
+    halves both axes -> [B, 128, 3, 26] -> global average pooling [B, 128]
+    -> dropout 0.3 -> linear 64 + ReLU -> dropout 0.3 -> linear 3 (logits Present / Unknown / Absent).
+    Receptive field of the last layer: 31 x 31 cells = ~310 ms x 31 of the 40 mel bands, enough to see
+    S1, the systole and S2 together. Strides instead of pooling keep the network small and fast.
+
+Training (DEFAULT_CNN_CFG, also used by the RNN): cross-entropy with inverse-frequency class weights,
+Adam lr 1e-3, weight decay 1e-4, batch 128, constant lr, up to 50 epochs with early stopping on the
+validation loss (patience 8, best weights kept), SpecAugment (1 frequency + 1 time mask) and random time
+shift of up to +-2 s.
 """
 import argparse
 import copy
@@ -26,8 +39,8 @@ DEFAULT_CNN_CFG = dict(
     lr=1e-3,
     weight_decay=1e-4,
     batch_size=128,
-    max_epochs=30,
-    patience=5,
+    max_epochs=50,           # values of the final run (results/cnn/cv_summary.json)
+    patience=8,
     weight_power=1.0,
     dropout=0.3,
     spec_augment=True,
