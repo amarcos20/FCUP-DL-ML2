@@ -83,9 +83,16 @@ def confusion_df(rep):
 
 # ---------------------------------------------------------------- saved predictions
 
+def result_dir(name):
+    """Folder of a run: results/<name> for the final models (cnn, rnn) and new runs,
+    results/experiments/<name> for the iterations and comparisons already moved there."""
+    exp = RESULTS_DIR / "experiments" / name
+    return exp if exp.is_dir() else RESULTS_DIR / name
+
+
 def save_oof(name, window_idx, probs, extra=None):
-    """Save out-of-fold window probabilities (+ optional JSON summary) to results/<name>/."""
-    out = RESULTS_DIR / name
+    """Save out-of-fold window probabilities (+ optional JSON summary) to result_dir(name)."""
+    out = result_dir(name)
     out.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(probs, columns=CLASSES, index=pd.Index(window_idx, name="window_idx"))
     df.to_csv(out / "oof.csv", float_format="%.5f")
@@ -96,5 +103,5 @@ def save_oof(name, window_idx, probs, extra=None):
 
 def load_oof(name):
     """(window_idx, probs) saved by save_oof."""
-    df = pd.read_csv(RESULTS_DIR / name / "oof.csv", index_col="window_idx")
+    df = pd.read_csv(result_dir(name) / "oof.csv", index_col="window_idx")
     return df.index.to_numpy(), df[CLASSES].to_numpy(dtype=np.float32)

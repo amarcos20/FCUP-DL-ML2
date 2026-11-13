@@ -11,7 +11,7 @@ Usage:
 
 The PDF is compiled with tectonic (conda install -c conda-forge tectonic) or latexmk -xelatex.
 Needs data/processed/ and results/<model>/ (oof.csv, cv_summary.json, history_fold*.csv; the fold
-models of results/rnn_att for the attention analysis).
+models of results/experiments/rnn_att for the attention analysis).
 """
 import argparse
 import json
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.data import CLASSES, STATES, load_segmentation, load_split  # noqa: E402
 from src.datasets import CNNWindows, fold_masks, load_processed, mel_band_stats  # noqa: E402
-from src.evaluate import RESULTS_DIR, cv_report, load_oof, patient_scores, tune_thresholds  # noqa: E402
+from src.evaluate import RESULTS_DIR, result_dir, cv_report, load_oof, patient_scores, tune_thresholds  # noqa: E402
 from src.metrics import weighted_accuracy  # noqa: E402
 
 OUT = ROOT / "reports"
@@ -171,9 +171,9 @@ def evaluate(d, folder):
     idx, oof = load_oof(folder)
     pat = patient_scores(d.windows.loc[idx], oof)
     table, _, rep = cv_report(pat)
-    cfg = json.loads((RESULTS_DIR / folder / "cv_summary.json").read_text())["cfg"]
+    cfg = json.loads((result_dir(folder) / "cv_summary.json").read_text())["cfg"]
     hist = {int(p.stem.split("fold")[1].split("_")[0]): pd.read_csv(p)
-            for p in sorted((RESULTS_DIR / folder).glob("history_fold?.csv"))}
+            for p in sorted((result_dir(folder)).glob("history_fold?.csv"))}
     y = pat.murmur
     auc = {c: roc_auc_score(y == c, pat[c]) for c in ["Present", "Unknown"]}
     return dict(pat=pat, wa=table["WA (tuned)"], rep=rep, cfg=cfg, hist=hist, auc=auc)
@@ -200,7 +200,7 @@ def attention_lift(d):
     with >= 80 % annotated frames, 150 Present + 150 Absent windows per fold, model of that fold)."""
     import torch
     from src.rnn import load_runs
-    runs, _ = load_runs(RESULTS_DIR / "rnn_att")
+    runs, _ = load_runs(result_dir("rnn_att"))
     rows = []
     for r in runs:
         w = d.windows[d.windows.fold == r["fold"]]
@@ -529,7 +529,7 @@ limiares).
 
 def sec_literature(res):
     base = res["cnn"]["wa"]
-    hh_rule = json.loads((RESULTS_DIR / "hearheart" / "cv_summary.json").read_text())["hearheart_rule"]["wa_mean"]
+    hh_rule = json.loads((result_dir("hearheart") / "cv_summary.json").read_text())["hearheart_rule"]["wa_mean"]
     rows = []
     for f, (name, role, p) in ALL_MODELS.items():
         wa = res[f]["wa"]

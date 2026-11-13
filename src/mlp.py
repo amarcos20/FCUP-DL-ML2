@@ -4,7 +4,7 @@ Inputs come from src.datasets (mlp_arrays: z-score fitted on the training folds 
 are the recording-level labels (`rec_label`). Window predictions are turned into one
 prediction per patient by src.evaluate.
 
-Usage (trains the 5 CV folds, saves results/mlp/{oof.csv, cv_summary.json, fold*.pt}):
+Usage (trains the 5 CV folds, saves results/experiments/mlp/{oof.csv, cv_summary.json, fold*.pt}):
     python -m src.mlp [--epochs 100 --patience 10 --lr 1e-3 ...]
 """
 import argparse
@@ -17,7 +17,7 @@ from torch import nn
 
 from src.data import CLASSES
 from src.datasets import class_weights, fold_masks, load_processed, mlp_arrays
-from src.evaluate import RESULTS_DIR, cv_report, patient_scores, save_oof, summary, tune_thresholds
+from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 from src.features import Standardizer
 
 DEFAULT_CFG = dict(
@@ -137,7 +137,7 @@ def save_runs(runs, cfg, out_dir):
         r["history"].to_csv(out_dir / f"history_fold{r['fold']}.csv", index=False)
 
 
-def load_runs(out_dir=RESULTS_DIR / "mlp"):
+def load_runs(out_dir=result_dir("mlp")):
     runs = []
     for p in sorted(out_dir.glob("fold*.pt")):
         ck = torch.load(p, map_location="cpu", weights_only=False)

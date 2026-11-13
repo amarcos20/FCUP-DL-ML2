@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 
 from src.data import CLASSES
 from src.datasets import CNNWindows, class_weights, fold_masks, load_processed, mel_band_stats
-from src.evaluate import RESULTS_DIR, cv_report, patient_scores, save_oof, summary, tune_thresholds
+from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 
 DEFAULT_CNN_CFG = dict(
     lr=1e-3,
@@ -258,7 +258,7 @@ def save_runs(runs, cfg, out_dir):
         r["history"].to_csv(out_dir / f"history_fold{r['fold']}.csv", index=False)
 
 
-def load_runs(out_dir=RESULTS_DIR / "cnn"):
+def load_runs(out_dir=result_dir("cnn")):
     runs = []
     for p in sorted(out_dir.glob("fold*.pt")):
         ck = torch.load(p, map_location=device(), weights_only=False)
