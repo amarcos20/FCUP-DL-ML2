@@ -21,3 +21,6 @@ No iteration passed it (the best, `cnn_plateau_wa`, gains +0.006).
 
 `src.evaluate.result_dir(name)` resolves a run name to `results/<name>` or `results/experiments/<name>`,
 so code and notebooks refer to runs by name only. New runs are written to `results/<name>`.
+
+What is committed per folder: `oof.csv`, `cv_summary.json` and `history_fold*.csv` (and `rec_oof.csv` for
+`hearheart`). The fold models (`fold*.pt`) are not in the repository; rerun the command of an experiment to get them.
