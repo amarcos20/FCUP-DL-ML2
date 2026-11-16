@@ -5,6 +5,8 @@
 #   sbatch -A <account_g> -t 02:00:00 scripts/deucalion_rnn.sbatch --pool attention --name rnn_att   # iteration 2
 #   sbatch -A <account_g> -p dev-a100-40 -t 00:30:00 scripts/deucalion_rnn.sbatch --epochs 2 --folds 0 --name smoke_rnn
 #
+# Band up to 2000 Hz (branch teste_2000hz): needs data/processed_2k (python -m src.prepare_data --f-high 2000 --fmax 2000
+# --n-mels 68 --out data/processed_2k), then: ... --proc-dir data/processed_2k --name rnn_2k
 # Arguments are passed to `python -m src.models.rnn`.
 # Expects the repo in $PROJ/FCUP-DL-ML2 with data/processed/ and the venv in $PROJ/venv_ml2_x86.
 #SBATCH --job-name=ml2-rnn

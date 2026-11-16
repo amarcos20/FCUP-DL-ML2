@@ -5,6 +5,8 @@
 #   sbatch -A <account_g> -t 01:00:00 scripts/deucalion_cnn.sbatch --epochs 50 --patience 8 --scheduler plateau --name cnn_plateau
 #
 # Always pass --epochs 50 --patience 8 (the settings of the reference run results/cnn) and a new --name.
+# Band up to 2000 Hz (branch teste_2000hz): needs data/processed_2k (python -m src.prepare_data --f-high 2000 --fmax 2000
+# --n-mels 68 --out data/processed_2k), then: ... --proc-dir data/processed_2k --name cnn_2k
 # Arguments are passed to `python -m src.models.cnn`.
 # Expects the repo in $PROJ/FCUP-DL-ML2 with data/processed/ and the venv in $PROJ/venv_ml2_x86.
 #SBATCH --job-name=ml2-cnn

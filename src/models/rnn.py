@@ -21,6 +21,7 @@ Usage (5 CV folds, saves results/<name>/{oof.csv, cv_summary.json, history_fold*
     python -m src.models.rnn                                   # iteration 1: BiGRU, mean pooling -> results/rnn
     python -m src.models.rnn --pool attention --name rnn_att   # iteration 2
     python -m src.models.rnn --cell lstm --name rnn_lstm
+    python -m src.models.rnn --proc-dir data/processed_2k --name rnn_2k   # band up to 2000 Hz (src.prepare_data)
 """
 import argparse
 
@@ -29,9 +30,9 @@ import torch
 import torch.nn as nn
 
 from src.models.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device, predict_cnn_proba
-from src.models.cnn import save_runs
-from src.data import CLASSES
-from src.datasets import CNNWindows, load_processed
+from src.models.cnn import preprocessing, save_runs
+from src.data import CLASSES, ROOT
+from src.datasets import PROC_DIR, CNNWindows, load_processed
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 
 DEFAULT_RNN_CFG = DEFAULT_CNN_CFG | dict(
@@ -70,7 +71,8 @@ class HeartMurmurRNN(nn.Module):
 
 
 def build_model(cfg):
-    return HeartMurmurRNN(cell=cfg["cell"], hidden=cfg["hidden"], layers=cfg["layers"],
+    return HeartMurmurRNN(n_mels=cfg.get("n_mels", 40),   # 40 for runs saved before the 2000 Hz experiment
+                          cell=cfg["cell"], hidden=cfg["hidden"], layers=cfg["layers"],
                           bidirectional=cfg["bidirectional"], pool=cfg["pool"],
                           rnn_dropout=cfg["rnn_dropout"], dropout=cfg["dropout"])
 
@@ -118,16 +120,20 @@ def main():
     ap.add_argument("--workers", type=int, default=c["num_workers"])
     ap.add_argument("--in-memory", action="store_true", help="load mel.npy into RAM (~0.6 GB) instead of mmap")
     ap.add_argument("--folds", type=int, nargs="+", default=list(range(5)))
+    ap.add_argument("--proc-dir", default=str(PROC_DIR.relative_to(ROOT)),
+                    help="pre-processed data of src.prepare_data (e.g. data/processed_2k for the 2000 Hz band)")
     ap.add_argument("--name", default="rnn", help="output folder under results/")
     a = ap.parse_args()
-    cfg = c | dict(cell=a.cell, hidden=a.hidden, layers=a.layers, bidirectional=not a.unidirectional, pool=a.pool,
+    d = load_processed(ROOT / a.proc_dir, mmap=not a.in_memory)
+    print("pre-processing:", d.config["audio"], d.config["mel"], flush=True)
+    cfg = c | dict(proc_dir=a.proc_dir, n_mels=d.config["mel"]["n_mels"],
+                   cell=a.cell, hidden=a.hidden, layers=a.layers, bidirectional=not a.unidirectional, pool=a.pool,
                    rnn_dropout=a.rnn_dropout, dropout=a.dropout, max_epochs=a.epochs, patience=a.patience, lr=a.lr,
                    batch_size=a.batch_size, spec_augment=not a.no_spec_augment, random_crop=not a.no_random_crop,
                    num_workers=a.workers, monitor=a.monitor, scheduler=a.scheduler,
                    plateau_patience=a.plateau_patience)
     print(cfg, "| device:", device(), "| parameters:", n_params(build_model(cfg)), flush=True)
 
-    d = load_processed(mmap=not a.in_memory)
     dev, oof, runs = cross_validate_cnn(d, cfg, a.folds, model_fn=build_model)
     pat = patient_scores(dev, oof)
     table, _, rep = cv_report(pat)
@@ -135,7 +141,8 @@ def main():
     print(table.round(3).to_string())
     print(f"WA (tuned, nested): {table['WA (tuned)'].mean():.3f} ± {table['WA (tuned)'].std():.3f}")
 
-    out = save_oof(a.name, dev.index, oof, summary(table, rep) | {"cfg": cfg, "thresholds": t_final})
+    out = save_oof(a.name, dev.index, oof, summary(table, rep) | {"cfg": cfg, "thresholds": t_final,
+                                                                  "preprocessing": preprocessing(d)})
     save_runs(runs, cfg, out)
     print("saved to", out)
 

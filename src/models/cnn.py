@@ -9,6 +9,7 @@ Targets are the recording-level labels (`rec_label`); one prediction per patient
 Usage (trains the 5 CV folds, saves results/cnn/{oof.csv, cv_summary.json, fold*.pt}):
     python -m src.models.cnn                     # defaults = the final model in results/cnn (50 epochs, patience 8)
     python -m src.models.cnn --scheduler plateau --name cnn_plateau   # an iteration (see results/experiments)
+    python -m src.models.cnn --proc-dir data/processed_2k --name cnn_2k  # band up to 2000 Hz (src.prepare_data)
 
 Network (HeartMurmurCNN, 106 083 parameters):
     [B, 1, 40, 401] -> 4 x (conv 3x3 stride 2 + BatchNorm + ReLU), 16 -> 32 -> 64 -> 128 maps, each block
@@ -32,7 +33,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from src.data import CLASSES
-from src.datasets import CNNWindows, class_weights, fold_masks, load_processed, mel_band_stats
+from src.data import ROOT
+from src.datasets import PROC_DIR, CNNWindows, class_weights, fold_masks, load_processed, mel_band_stats
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
 
 DEFAULT_CNN_CFG = dict(
@@ -264,6 +266,11 @@ def predict_ensemble_cnn(runs, d, mask, cfg=DEFAULT_CNN_CFG):
 # Save / load fold models
 # -----------------------------------------------------------------------------
 
+def preprocessing(d):
+    """Audio + log-mel settings of the data a run was trained on (saved in cv_summary.json, used by src.predict)."""
+    return {"audio": d.config["audio"], "mel": d.config["mel"]}
+
+
 def save_runs(runs, cfg, out_dir):
     for r in runs:
         torch.save({"cfg": cfg, "state_dict": r["model"].state_dict(), "band_stats": r["band_stats"]},
@@ -298,15 +305,18 @@ def main():
     ap.add_argument("--workers", type=int, default=c["num_workers"])
     ap.add_argument("--in-memory", action="store_true", help="load mel.npy into RAM (~0.6 GB) instead of mmap")
     ap.add_argument("--folds", type=int, nargs="+", default=list(range(5)))
+    ap.add_argument("--proc-dir", default=str(PROC_DIR.relative_to(ROOT)),
+                    help="pre-processed data of src.prepare_data (e.g. data/processed_2k for the 2000 Hz band)")
     ap.add_argument("--name", default="cnn", help="output folder under results/")
     a = ap.parse_args()
-    cfg = c | dict(max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
+    cfg = c | dict(proc_dir=a.proc_dir, max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
                    weight_power=a.weight_power, spec_augment=not a.no_spec_augment,
                    random_crop=not a.no_random_crop, num_workers=a.workers, monitor=a.monitor,
                    scheduler=a.scheduler, plateau_patience=a.plateau_patience)
     print(cfg, "| device:", device(), flush=True)
 
-    d = load_processed(mmap=not a.in_memory)
+    d = load_processed(ROOT / a.proc_dir, mmap=not a.in_memory)
+    print("pre-processing:", d.config["audio"], d.config["mel"], flush=True)
     dev, oof, runs = cross_validate_cnn(d, cfg, a.folds)
     pat = patient_scores(dev, oof)
     table, _, rep = cv_report(pat)
@@ -314,7 +324,8 @@ def main():
     print(table.round(3).to_string())
     print(f"WA (tuned, nested): {table['WA (tuned)'].mean():.3f} ± {table['WA (tuned)'].std():.3f}")
 
-    out = save_oof(a.name, dev.index, oof, summary(table, rep) | {"cfg": cfg, "thresholds": t_final})
+    out = save_oof(a.name, dev.index, oof, summary(table, rep) | {"cfg": cfg, "thresholds": t_final,
+                                                                  "preprocessing": preprocessing(d)})
     save_runs(runs, cfg, out)
     print("saved to", out)
 

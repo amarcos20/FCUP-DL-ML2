@@ -40,7 +40,7 @@ from src.models.cnn import device
 from src.data import CLASSES
 from src.datasets import aggregate_to_patient
 from src.evaluate import RESULTS_DIR, result_dir, predict_rule
-from src.features import AUDIO, MEL, frames_per_window, load_audio, logmel, window_starts
+from src.features import AUDIO, MEL, AudioConfig, MelConfig, frames_per_window, load_audio, logmel, window_starts
 
 
 def find_wavs(wav_dir):
@@ -51,16 +51,16 @@ def find_wavs(wav_dir):
     return pd.DataFrame(rows)
 
 
-def recording_windows(path):
+def recording_windows(path, audio=AUDIO, mel_cfg=MEL):
     """(n_windows, 40, 401) log-mel windows of one recording, cut as in training (src.prepare_data +
     src.datasets.mel_window): window start in frames = round(start_sample / hop); past the end of the
     recording the window is padded with its minimum dB value."""
-    y = load_audio(path)
-    mel = logmel(y)
-    n = frames_per_window()
+    y = load_audio(path, audio)
+    mel = logmel(y, mel_cfg, audio.sr)
+    n = frames_per_window(mel_cfg, audio)
     out = []
-    for s in window_starts(len(y)):
-        f0 = min(int(round(s / MEL.hop_length)), mel.shape[1] - 1)
+    for s in window_starts(len(y), audio):
+        f0 = min(int(round(s / mel_cfg.hop_length)), mel.shape[1] - 1)
         x = mel[:, f0:f0 + n]
         if x.shape[1] < n:
             x = np.pad(x, ((0, 0), (0, n - x.shape[1])), constant_values=float(x.min()))
@@ -79,8 +79,11 @@ def load_model_runs(model):
         runs = load_runs(folder)
     if not runs:
         raise SystemExit(f"no fold models (fold*.pt) in {folder}")
-    thresholds = json.loads((folder / "cv_summary.json").read_text())["thresholds"]
-    return runs, thresholds
+    summ = json.loads((folder / "cv_summary.json").read_text())
+    # runs trained before the 2000 Hz experiment have no "preprocessing" entry: default band 25-1000 Hz, 40 mels
+    pre = summ.get("preprocessing")
+    audio, mel_cfg = (AudioConfig(**pre["audio"]), MelConfig(**pre["mel"])) if pre else (AUDIO, MEL)
+    return runs, summ["thresholds"], audio, mel_cfg
 
 
 def window_probs(runs, X, batch=256):
@@ -100,10 +103,11 @@ def window_probs(runs, X, batch=256):
 def predict(wav_dir, model="cnn"):
     """Returns (patient scores DataFrame, labels Series) for every patient in wav_dir."""
     recs = find_wavs(wav_dir)
-    runs, (t1, t2) = load_model_runs(model)
+    runs, (t1, t2), audio, mel_cfg = load_model_runs(model)
+    print(f"pre-processing of {model}: band-pass {audio.f_low}-{audio.f_high} Hz, {mel_cfg.n_mels} mels up to {mel_cfg.fmax} Hz")
     win_rows, probs = [], []
     for r in tqdm(recs.itertuples(), total=len(recs), desc="recordings"):
-        X = recording_windows(r.path)
+        X = recording_windows(r.path, audio, mel_cfg)
         probs.append(window_probs(runs, X))
         win_rows += [{"recording": r.recording, "patient_id": r.patient_id}] * len(X)
     pat = aggregate_to_patient(pd.DataFrame(win_rows), np.concatenate(probs), how="max")
@@ -114,8 +118,9 @@ def predict(wav_dir, model="cnn"):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wav-dir", required=True, help="folder with the .wav files (searched recursively)")
-    ap.add_argument("--model", default="cnn", choices=["cnn", "rnn"],
-                    help="one of the two classifiers of the project (fold models in results/<model>/)")
+    ap.add_argument("--model", default="cnn",
+                    help="run name with fold models in results/<model>/: cnn, rnn, or a run such as cnn_2k / rnn_2k "
+                         "(names starting with 'rnn' load the RNN)")
     ap.add_argument("--out", help="output CSV (default predictions_<model>.csv)")
     ap.add_argument("--probs", action="store_true", help="also save the patient scores")
     ap.add_argument("--template", help="submission template (columns ID,Murmur): output in its format and order")
