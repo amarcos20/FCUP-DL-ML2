@@ -72,20 +72,25 @@ MFCC = MFCCConfig()
 BANDS = [(25, 100), (100, 200), (200, 400), (400, 700), (700, 1000)]
 
 
-def config_dict():
-    return {"audio": asdict(AUDIO), "mel": asdict(MEL), "mfcc": asdict(MFCC), "bands": BANDS}
+def config_dict(audio=AUDIO, mel=MEL):
+    return {"audio": asdict(audio), "mel": asdict(mel), "mfcc": asdict(MFCC), "bands": BANDS}
 
 
 # ---------------------------------------------------------------- signal level
 
-_SOS = None
+_SOS = {}
 
 
 def _bandpass_sos(cfg=AUDIO):
-    global _SOS
-    if _SOS is None:
-        _SOS = ss.butter(4, [cfg.f_low, cfg.f_high], btype="bandpass", fs=cfg.sr, output="sos")
-    return _SOS
+    """Butterworth order 4, cached per configuration. If f_high reaches the Nyquist frequency (sr / 2, e.g.
+    f_high = 2000 Hz at 4 kHz) there is nothing to cut above, so only the high-pass at f_low is applied."""
+    key = (cfg.sr, cfg.f_low, cfg.f_high)
+    if key not in _SOS:
+        if cfg.f_high >= cfg.sr / 2:
+            _SOS[key] = ss.butter(4, cfg.f_low, btype="highpass", fs=cfg.sr, output="sos")
+        else:
+            _SOS[key] = ss.butter(4, [cfg.f_low, cfg.f_high], btype="bandpass", fs=cfg.sr, output="sos")
+    return _SOS[key]
 
 
 def load_audio(path, cfg=AUDIO):

@@ -14,6 +14,13 @@ Outputs (data/processed/):
                     along time; CNN windows are sliced from it on the fly (src.datasets)
     config.json     every pre-processing parameter + feature names
 
+Frequency band (experiment `teste_2000hz`): by default the signal is band-passed to 25-1000 Hz and the log-mel
+has 40 bands up to 1000 Hz. --f-high / --fmax / --n-mels / --out write an alternative version to another folder,
+e.g. the full band available at 4 kHz (up to the Nyquist frequency, 2000 Hz) with 68 bands, which keeps the same
+band spacing below 1 kHz as the 40 default bands and adds 28 bands between 1 and 2 kHz:
+    python -m src.prepare_data --f-high 2000 --fmax 2000 --n-mels 68 --out data/processed_2k
+The models read it with --proc-dir data/processed_2k.
+
 Nothing here is fitted on the data (no normalisation statistics), so there is no leakage:
 standardisation is fitted on the training folds at training time (src.features.Standardizer).
 """
@@ -21,6 +28,9 @@ import argparse
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
+from functools import partial
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -33,18 +43,20 @@ from src.features import (AUDIO, MEL, config_dict, frames_per_window, load_audio
 OUT_DIR = ROOT / "data" / "processed"
 
 
-def process_recording(path):
+def process_recording(path, audio=AUDIO, mel_cfg=MEL):
     """All features of one recording: duration, full log-mel, window starts, MLP features."""
-    y = load_audio(path)
-    mel = logmel(y)                                  # (n_mels, frames) of the whole recording
-    wins, starts = split_windows(y)                  # (n_win, window_len)
+    y = load_audio(path, audio)
+    mel = logmel(y, mel_cfg, audio.sr)               # (n_mels, frames) of the whole recording
+    wins, starts = split_windows(y, audio)           # (n_win, window_len)
     X = np.stack([mlp_features(w) for w in wins])    # (n_win, n_features)
-    return len(y) / AUDIO.sr, mel, starts, X
+    return len(y) / audio.sr, mel, starts, X
 
 
-def prepare_data(jobs=None, out_dir=OUT_DIR):
+def prepare_data(jobs=None, out_dir=OUT_DIR, audio=AUDIO, mel_cfg=MEL):
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Dataset: {DATA_DIR}")
+    print(f"band-pass {audio.f_low}-{audio.f_high} Hz | log-mel {mel_cfg.n_mels} bands {mel_cfg.fmin}-{mel_cfg.fmax} Hz -> {out_dir}")
+    work = partial(process_recording, audio=audio, mel_cfg=mel_cfg)
     rec = load_recordings()
     split = load_split()
     rec["fold"] = rec["patient_id"].map(split["fold"])
@@ -52,10 +64,10 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
 
     jobs = jobs or max(1, (os.cpu_count() or 2) - 1)
     if jobs == 1:
-        results = [process_recording(p) for p in tqdm(rec.path, desc="features")]
+        results = [work(p) for p in tqdm(rec.path, desc="features")]
     else:
         with ProcessPoolExecutor(jobs) as ex:
-            results = list(tqdm(ex.map(process_recording, rec.path, chunksize=8), total=len(rec), desc="features"))
+            results = list(tqdm(ex.map(work, rec.path, chunksize=8), total=len(rec), desc="features"))
 
     # --- assemble
     mels, X_all, win_rows = [], [], []
@@ -67,7 +79,7 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
         for s in starts:
             win_rows.append({
                 "recording": r.recording, "patient_id": r.patient_id, "location": r.location,
-                "start_s": s, "mel_start": offset + int(round(s * AUDIO.sr / MEL.hop_length)),
+                "start_s": s, "mel_start": offset + int(round(s * audio.sr / mel_cfg.hop_length)),
                 "murmur": r.murmur, "rec_label": r.rec_label, "fold": r.fold,
             })
         mels.append(mel)
@@ -80,7 +92,7 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
     rec = rec.drop(columns=["path"])
 
     # --- integrity checks
-    fpw = frames_per_window()
+    fpw = frames_per_window(mel_cfg, audio)
     assert len(win) == len(X_mlp), "windows / MLP rows mismatch"
     assert np.isfinite(X_mlp).all(), "NaN/inf in X_mlp"
     assert np.isfinite(mel.astype(np.float32)).all(), "NaN/inf in mel"
@@ -95,12 +107,12 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
     np.save(out_dir / "mel.npy", mel)
     win.to_csv(out_dir / "windows.csv", index=False)
     rec.to_csv(out_dir / "recordings.csv", index=False)
-    cfg = config_dict() | {"mlp_features": mlp_feature_names(), "frames_per_window": fpw}
+    cfg = config_dict(audio, mel_cfg) | {"mlp_features": mlp_feature_names(), "frames_per_window": fpw}
     (out_dir / "config.json").write_text(json.dumps(cfg, indent=2))
 
     print("\n=== SUMMARY ===")
     print(f"MLP input  X_mlp: {X_mlp.shape}  (one vector per window)")
-    print(f"CNN input  mel  : {mel.shape} -> windows of ({MEL.n_mels}, {fpw})  [{mel.nbytes / 1e6:.0f} MB]")
+    print(f"CNN input  mel  : {mel.shape} -> windows of ({mel_cfg.n_mels}, {fpw})  [{mel.nbytes / 1e6:.0f} MB]")
     print(f"windows: {len(win)}  |  per class (rec_label):\n{win.rec_label.value_counts().to_string()}")
     print(f"windows per fold:\n{win.groupby('fold').size().to_string()}")
     print(f"saved to {out_dir}")
@@ -110,4 +122,12 @@ def prepare_data(jobs=None, out_dir=OUT_DIR):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs", type=int, default=None)
-    prepare_data(jobs=ap.parse_args().jobs)
+    ap.add_argument("--f-high", type=float, default=AUDIO.f_high,
+                    help="band-pass upper cut-off in Hz (>= 2000 = no low-pass, only the 25 Hz high-pass)")
+    ap.add_argument("--fmax", type=float, default=MEL.fmax, help="highest frequency of the log-mel (Hz)")
+    ap.add_argument("--n-mels", type=int, default=MEL.n_mels)
+    ap.add_argument("--out", type=Path, default=OUT_DIR, help="output folder (default data/processed)")
+    a = ap.parse_args()
+    out = a.out if a.out.is_absolute() else ROOT / a.out
+    prepare_data(jobs=a.jobs, out_dir=out, audio=replace(AUDIO, f_high=a.f_high),
+                 mel_cfg=replace(MEL, fmax=a.fmax, n_mels=a.n_mels))
