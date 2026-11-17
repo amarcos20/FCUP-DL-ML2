@@ -307,9 +307,10 @@ def main():
     ap.add_argument("--folds", type=int, nargs="+", default=list(range(5)))
     ap.add_argument("--proc-dir", default=str(PROC_DIR.relative_to(ROOT)),
                     help="pre-processed data of src.prepare_data (e.g. data/processed_2k for the 2000 Hz band)")
+    ap.add_argument("--seed", type=int, default=c["seed"], help="base seed (fold k uses seed + k); vary it to measure seed noise")
     ap.add_argument("--name", default="cnn", help="output folder under results/")
     a = ap.parse_args()
-    cfg = c | dict(proc_dir=a.proc_dir, max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
+    cfg = c | dict(proc_dir=a.proc_dir, seed=a.seed, max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
                    weight_power=a.weight_power, spec_augment=not a.no_spec_augment,
                    random_crop=not a.no_random_crop, num_workers=a.workers, monitor=a.monitor,
                    scheduler=a.scheduler, plateau_patience=a.plateau_patience)
