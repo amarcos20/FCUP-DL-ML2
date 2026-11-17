@@ -1,0 +1,67 @@
+{
+  "wa_mean": 0.7161130819986412,
+  "wa_std": 0.039588452227359544,
+  "wa_pooled": 0.7159804605722261,
+  "recall": {
+    "Present": 0.7132867132867133,
+    "Unknown": 0.1111111111111111,
+    "Absent": 0.89568345323741
+  },
+  "confusion": [
+    [
+      102,
+      7,
+      41
+    ],
+    [
+      1,
+      6,
+      17
+    ],
+    [
+      40,
+      41,
+      498
+    ]
+  ],
+  "cfg": {
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "batch_size": 128,
+    "max_epochs": 50,
+    "patience": 8,
+    "weight_power": 1.0,
+    "dropout": 0.3,
+    "spec_augment": true,
+    "random_crop": true,
+    "label_col": "rec_label",
+    "num_workers": 16,
+    "seed": 42,
+    "monitor": "loss",
+    "scheduler": "none",
+    "plateau_patience": 3,
+    "lr_factor": 0.1,
+    "proc_dir": "data/processed_2k"
+  },
+  "thresholds": [
+    0.55,
+    0.725
+  ],
+  "preprocessing": {
+    "audio": {
+      "sr": 4000,
+      "f_low": 25.0,
+      "f_high": 2000.0,
+      "window_s": 4.0,
+      "hop_s": 2.0,
+      "min_last_s": 2.0
+    },
+    "mel": {
+      "n_fft": 256,
+      "hop_length": 40,
+      "n_mels": 68,
+      "fmin": 20.0,
+      "fmax": 2000.0
+    }
+  }
+}
