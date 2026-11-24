@@ -21,6 +21,8 @@ Usage (5 CV folds, saves results/<name>/{oof.csv, cv_summary.json, history_fold*
     python -m src.models.rnn                                   # iteration 1: BiGRU, mean pooling -> results/rnn
     python -m src.models.rnn --pool attention --name rnn_att   # iteration 2
     python -m src.models.rnn --cell lstm --name rnn_lstm
+Same extra options as the CNN: --no-spec-augment --no-random-crop, --demo age height (wide branch concatenated
+to the pooled GRU output), --include-test (final models of the hidden set).
 """
 import argparse
 
@@ -29,7 +31,7 @@ import torch
 import torch.nn as nn
 
 from src.models.cnn import DEFAULT_CNN_CFG, cross_validate_cnn, device, predict_cnn_proba
-from src.models.cnn import save_runs
+from src.models.cnn import add_experiment_args, experiment_cfg, run_demo, save_runs
 from src.data import CLASSES
 from src.datasets import CNNWindows, load_processed
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
@@ -48,7 +50,7 @@ class HeartMurmurRNN(nn.Module):
     frame; mean over the 401 frames -> dropout 0.3 -> linear 3 (logits Present / Unknown / Absent)."""
 
     def __init__(self, n_mels=40, cell="gru", hidden=64, layers=2, bidirectional=True, pool="mean",
-                 rnn_dropout=0.3, dropout=0.3, n_out=len(CLASSES)):
+                 rnn_dropout=0.3, dropout=0.3, n_out=len(CLASSES), n_demo=0, demo_hidden=16):
         super().__init__()
         rnn = {"gru": nn.GRU, "lstm": nn.LSTM}[cell]
         self.rnn = rnn(n_mels, hidden, num_layers=layers, batch_first=True, bidirectional=bidirectional,
@@ -56,15 +58,21 @@ class HeartMurmurRNN(nn.Module):
         d = hidden * (2 if bidirectional else 1)
         self.pool = pool
         self.att = nn.Linear(d, 1) if pool == "attention" else None
-        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(d, n_out))
+        # demographic wide branch (n_demo = 0: original network and state_dict)
+        self.demo = nn.Sequential(nn.Linear(n_demo, demo_hidden), nn.ReLU()) if n_demo else None
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(d + (demo_hidden if n_demo else 0), n_out))
 
-    def forward(self, x, return_weights=False):
+    def forward(self, x, demo=None, return_weights=False):
         h, _ = self.rnn(x[:, 0].transpose(1, 2))           # [B, 1, F, T] -> [B, T, F] -> [B, T, d]
         if self.pool == "attention":
             w = torch.softmax(self.att(h), dim=1)           # [B, T, 1], sums to 1 over time
             z = (w * h).sum(1)
         else:
             w, z = None, h.mean(1)
+        if self.demo is not None:
+            if demo is None:
+                raise ValueError("this model was trained with demographics: pass demo")
+            z = torch.cat([z, self.demo(demo)], dim=1)
         out = self.head(z)
         return (out, w) if return_weights else out
 
@@ -72,7 +80,8 @@ class HeartMurmurRNN(nn.Module):
 def build_model(cfg):
     return HeartMurmurRNN(cell=cfg["cell"], hidden=cfg["hidden"], layers=cfg["layers"],
                           bidirectional=cfg["bidirectional"], pool=cfg["pool"],
-                          rnn_dropout=cfg["rnn_dropout"], dropout=cfg["dropout"])
+                          rnn_dropout=cfg["rnn_dropout"], dropout=cfg["dropout"],
+                          n_demo=cfg.get("n_demo", 0), demo_hidden=cfg.get("demo_hidden", 16))
 
 
 def n_params(model):
@@ -87,18 +96,23 @@ def load_runs(out_dir=result_dir("rnn")):
         cfg = ck["cfg"]
         model = build_model(cfg)
         model.load_state_dict(ck["state_dict"])
-        runs.append({"fold": int(p.stem[4:]), "model": model.to(device()).eval(), "band_stats": ck["band_stats"]})
+        runs.append({"fold": int(p.stem[4:]), "model": model.to(device()).eval(), "band_stats": ck["band_stats"],
+                     "demo_encoder": ck.get("demo_encoder")})
     return runs, cfg
 
 
-def predict_ensemble_rnn(runs, d, mask, cfg):
-    """Average window probabilities of all fold models (each with its own band statistics)."""
-    return np.mean([predict_cnn_proba(r["model"], CNNWindows(d, mask, r["band_stats"]), cfg) for r in runs], axis=0)
+def predict_ensemble_rnn(runs, d, mask, cfg, table=None):
+    """Average window probabilities of all fold models (each with its own band statistics and, if it uses
+    them, its own demographic encoder)."""
+    return np.mean([predict_cnn_proba(r["model"], CNNWindows(d, mask, r["band_stats"],
+                                                             demo=run_demo(r, table, d.windows[mask])), cfg)
+                    for r in runs], axis=0)
 
 
 def main():
     ap = argparse.ArgumentParser()
     c = DEFAULT_RNN_CFG
+    add_experiment_args(ap)
     ap.add_argument("--cell", choices=["gru", "lstm"], default=c["cell"])
     ap.add_argument("--hidden", type=int, default=c["hidden"])
     ap.add_argument("--layers", type=int, default=c["layers"])
@@ -125,7 +139,7 @@ def main():
                    rnn_dropout=a.rnn_dropout, dropout=a.dropout, max_epochs=a.epochs, patience=a.patience, lr=a.lr,
                    batch_size=a.batch_size, spec_augment=not a.no_spec_augment, random_crop=not a.no_random_crop,
                    num_workers=a.workers, monitor=a.monitor, scheduler=a.scheduler,
-                   plateau_patience=a.plateau_patience)
+                   plateau_patience=a.plateau_patience) | experiment_cfg(a)
     print(cfg, "| device:", device(), "| parameters:", n_params(build_model(cfg)), flush=True)
 
     d = load_processed(mmap=not a.in_memory)

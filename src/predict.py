@@ -4,28 +4,31 @@ The recordings go through exactly the same pipeline as in training:
     load at 4 kHz, band-pass 25-1000 Hz, z-score (src.features.load_audio)
     -> log-mel 40 bands x 10 ms of the whole recording (src.features.logmel)
     -> 4 s windows with 2 s hop (src.features.window_starts), 401 frames each
-    -> for each of the 5 fold models: per-band standardisation with that fold's training statistics,
-       softmax probabilities per window; the 5 models are averaged (ensemble)
+    -> for each fold model of each run: per-band standardisation with that fold's training statistics (and, for
+       models trained with --demo, the patient's demographics encoded with that fold's encoder), softmax
+       probabilities per window; fold models are averaged within a run, then runs are averaged (ensemble)
     -> mean over the windows of each recording, then per patient the maximum of P(Present) and
        P(Unknown) over its recordings (src.datasets.aggregate_to_patient, how="max")
-    -> hierarchical rule with the final thresholds of the model (results/<model>/cv_summary.json):
-       Present if P(Present) >= t1, else Unknown if P(Unknown) >= t2, else Absent.
+    -> hierarchical rule: Present if P(Present) >= t1, else Unknown if P(Unknown) >= t2, else Absent.
+       One run: its final thresholds (results/<run>/cv_summary.json). Several runs: thresholds tuned on the
+       average of their out-of-fold predictions (needs data/processed/windows.csv).
+    -> optional --stack results/<name>/stack_<variant>.json (src.stacking): the patient scores and the
+       demographics go through the stacked logistic regression, with its own thresholds.
 
 File names must follow the CirCor convention <patient_id>_<location>[_<n>].wav (e.g. 50052_AV.wav,
 50052_MV_1.wav): the patient id is the part before the first "_". Sub-folders are searched too.
 
 Usage:
-    python -m src.predict --wav-dir path/to/hidden_wavs                       # CNN -> predictions_cnn.csv
-    python -m src.predict --wav-dir path/to/hidden_wavs --model rnn --out predictions_rnn.csv
+    python -m src.predict --wav-dir path/to/wavs                                  # results/cnn -> predictions_cnn.csv
+    python -m src.predict --wav-dir path/to/wavs --models rnn rnn_s1 rnn_s2 rnn_s3   # seed ensemble
 
-Output: CSV with one row per patient and the columns patient_id,murmur (the format of the bonus).
---probs also saves the patient scores (P(Present), P(Unknown)) next to it, for checking.
-
-Hidden test set of the bonus (data/hidden/CirCor_test_students, see the README): the submission must follow
-the template PLX_GYY_test_results.csv (columns ID,Murmur, all 100 rows). --template fills that file in
-its own row order and stops if a patient of the template has no prediction:
+Hidden test set of the bonus (data/hidden/CirCor_test_students, see its README): the submission follows the template
+PLX_GYY_test_results.csv (columns ID,Murmur, all 100 rows). --template fills that file in its own row order and
+stops if a patient has no prediction. --demographics is required by models trained with --demo and by --stack:
     python -m src.predict --wav-dir data/hidden/CirCor_test_students/test_data \\
-        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL3_G08_test_results.csv
+        --models rnn_final_s42 rnn_final_s1 rnn_final_s2 rnn_final_s3 \\
+        --demographics data/hidden/CirCor_test_students/test_data_participants.csv \\
+        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL3_G08_test_results.csv --probs
 """
 import argparse
 import json
@@ -36,10 +39,11 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
+from src import demographics
 from src.models.cnn import device
 from src.data import CLASSES
-from src.datasets import aggregate_to_patient
-from src.evaluate import RESULTS_DIR, result_dir, predict_rule
+from src.datasets import PROC_DIR, aggregate_to_patient
+from src.evaluate import load_oof, patient_scores, predict_rule, result_dir, tune_thresholds
 from src.features import AUDIO, MEL, frames_per_window, load_audio, logmel, window_starts
 
 
@@ -68,63 +72,124 @@ def recording_windows(path):
     return np.stack(out).astype(np.float16).astype(np.float32)   # mel.npy is stored as float16
 
 
-def load_model_runs(model):
-    """Fold models (each with its band statistics) and the final thresholds of results/<model>."""
-    folder = result_dir(model)
-    if model.startswith("rnn"):
+# ------------------------------------------------------------------------------------------ models
+
+def load_model_runs(name):
+    """Fold models of results/<name> (CNN or RNN, detected from the saved config) and its cv_summary."""
+    folder = result_dir(name)
+    pts = sorted(folder.glob("fold*.pt"))
+    if not pts:
+        raise SystemExit(f"no fold models (fold*.pt) in {folder}")
+    cfg = torch.load(pts[0], map_location="cpu", weights_only=False)["cfg"]
+    if "mode" in cfg:
+        raise SystemExit(f"{name} is a HearHeart run: not supported here (use the CNN or the RNN)")
+    if "cell" in cfg:
         from src.models.rnn import load_runs
         runs, _ = load_runs(folder)
     else:
         from src.models.cnn import load_runs
         runs = load_runs(folder)
-    if not runs:
-        raise SystemExit(f"no fold models (fold*.pt) in {folder}")
-    thresholds = json.loads((folder / "cv_summary.json").read_text())["thresholds"]
-    return runs, thresholds
+    summary = json.loads((folder / "cv_summary.json").read_text())
+    return runs, summary
 
 
-def window_probs(runs, X, batch=256):
-    """Ensemble (mean over fold models) of the softmax probabilities of windows X (n, 40, 401)."""
+def ensemble_thresholds(names, summaries):
+    """Final thresholds: those of the run itself (one run), or tuned on the averaged out-of-fold predictions."""
+    if len(names) == 1:
+        return tuple(summaries[0]["thresholds"])
+    windows = pd.read_csv(PROC_DIR / "windows.csv")
+    idx0, probs = None, []
+    for n in names:
+        idx, p = load_oof(n)
+        if idx0 is None:
+            idx0 = idx
+        elif not np.array_equal(idx, idx0):
+            raise SystemExit(f"{n}: out-of-fold windows differ from {names[0]}: cannot tune ensemble thresholds")
+        probs.append(p)
+    t, wa = tune_thresholds(patient_scores(windows.loc[idx0], np.mean(probs, axis=0)))
+    print(f"ensemble thresholds tuned on the averaged OOF of {len(names)} runs: {t} (WA on all CV folds {wa:.3f}, "
+          f"optimistic: not nested)", flush=True)
+    return t
+
+
+def window_probs(runs, X, demo_row=None, batch=256):
+    """Mean over the fold models of the softmax probabilities of windows X (n, 40, 401).
+    demo_row: the patient's row of the demographic table (needed by models trained with --demo)."""
     dev = device()
     out = []
     for r in runs:
         mean, std = r["band_stats"]
         Xs = torch.from_numpy(((X - mean) / std)[:, None].astype(np.float32))
+        Z = None
+        if r.get("demo_encoder"):
+            if demo_row is None:
+                raise SystemExit("a model was trained with --demo: pass --demographics")
+            enc = demographics.DemoEncoder.from_state(r["demo_encoder"])
+            Z = torch.from_numpy(np.repeat(enc.transform(demo_row), len(X), axis=0))
         m = r["model"].to(dev).eval()
         with torch.no_grad():
-            p = [torch.softmax(m(Xs[i:i + batch].to(dev)), 1).cpu().numpy() for i in range(0, len(Xs), batch)]
+            p = []
+            for i in range(0, len(Xs), batch):
+                x = Xs[i:i + batch].to(dev)
+                logits = m(x) if Z is None else m(x, Z[i:i + batch].to(dev))
+                p.append(torch.softmax(logits, 1).cpu().numpy())
         out.append(np.concatenate(p))
     return np.mean(out, axis=0)
 
 
-def predict(wav_dir, model="cnn"):
-    """Returns (patient scores DataFrame, labels Series) for every patient in wav_dir."""
+def predict(wav_dir, names=("cnn",), table=None, stack=None):
+    """Returns (patient scores DataFrame, labels Series, info dict) for every patient in wav_dir."""
     recs = find_wavs(wav_dir)
-    runs, (t1, t2) = load_model_runs(model)
+    loaded = [load_model_runs(n) for n in names]
+    needs_demo = bool(stack and stack.get("encoder")) or any(r.get("demo_encoder") for runs, _ in loaded for r in runs)
+    if needs_demo and table is None:
+        raise SystemExit("these models / the stack use demographics: pass --demographics <participants csv>")
+    if needs_demo:
+        missing = sorted(set(recs.patient_id) - set(table.index))
+        if missing:
+            raise SystemExit(f"no demographics for patients {missing[:10]}")
+
     win_rows, probs = [], []
     for r in tqdm(recs.itertuples(), total=len(recs), desc="recordings"):
         X = recording_windows(r.path)
-        probs.append(window_probs(runs, X))
+        demo_row = table.loc[[r.patient_id]] if needs_demo else None
+        probs.append(np.mean([window_probs(runs, X, demo_row) for runs, _ in loaded], axis=0))
         win_rows += [{"recording": r.recording, "patient_id": r.patient_id}] * len(X)
     pat = aggregate_to_patient(pd.DataFrame(win_rows), np.concatenate(probs), how="max")
-    labels = pd.Series(predict_rule(pat, t1, t2), index=pat.index, name="murmur")
-    return pat, labels
+
+    if stack is None:
+        t1, t2 = ensemble_thresholds(list(names), [s for _, s in loaded])
+        scores = pat
+    else:
+        from src.stacking import apply_stack
+        if list(stack["base_runs"]) != list(names):
+            print(f"WARNING: the stack was fitted on {stack['base_runs']}, predicting with {list(names)}", flush=True)
+        scores = apply_stack(stack, pat, table)
+        t1, t2 = stack["thresholds"]
+    labels = pd.Series(predict_rule(scores, t1, t2), index=scores.index, name="murmur")
+    info = {"runs": list(names), "thresholds": [t1, t2], "stack": stack.get("variant") if stack else None}
+    return scores, labels, info
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wav-dir", required=True, help="folder with the .wav files (searched recursively)")
-    ap.add_argument("--model", default="cnn", choices=["cnn", "rnn"],
-                    help="one of the two classifiers of the project (fold models in results/<model>/)")
-    ap.add_argument("--out", help="output CSV (default predictions_<model>.csv)")
+    ap.add_argument("--models", "--model", dest="models", nargs="+", default=["cnn"],
+                    help="one or more runs in results/ (CNN or RNN fold models); several runs are averaged")
+    ap.add_argument("--demographics", help="patient table with Age, Sex, Height, Weight, ... "
+                    "(e.g. data/hidden/CirCor_test_students/test_data_participants.csv); needed with --demo models / --stack")
+    ap.add_argument("--stack", help="stacked logistic regression saved by src.stacking (stack_<variant>.json)")
+    ap.add_argument("--out", help="output CSV (default predictions_<runs>.csv)")
     ap.add_argument("--probs", action="store_true", help="also save the patient scores")
     ap.add_argument("--template", help="submission template (columns ID,Murmur): output in its format and order")
     a = ap.parse_args()
-    out = Path(a.out or f"predictions_{a.model}.csv")
+    out = Path(a.out or f"predictions_{'+'.join(a.models)}.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
-    print(f"model: results/{a.model} | device: {device()} | sample rate {AUDIO.sr} Hz", flush=True)
+    print(f"runs: {a.models} | device: {device()} | sample rate {AUDIO.sr} Hz", flush=True)
 
-    pat, labels = predict(a.wav_dir, a.model)
+    table = demographics.read_table(a.demographics) if a.demographics else None
+    stack = json.loads(Path(a.stack).read_text()) if a.stack else None
+    scores, labels, info = predict(a.wav_dir, a.models, table, stack)
     if a.template:
         sub = pd.read_csv(a.template, dtype={"ID": str})[["ID"]]
         sub["Murmur"] = sub["ID"].map(labels)
@@ -134,11 +199,12 @@ def main():
         sub.to_csv(out, index=False)
     else:
         labels.rename_axis("patient_id").reset_index().to_csv(out, index=False)
-    print(f"{len(labels)} patients -> {out}")
+    print(f"{len(labels)} patients -> {out} | thresholds {info['thresholds']}")
     print(labels.value_counts().reindex(CLASSES, fill_value=0).to_string())
+    out.with_name(out.stem + "_info.json").write_text(json.dumps(info, indent=2))
     if a.probs:
         p = out.with_name(out.stem + "_scores.csv")
-        pat[CLASSES].rename_axis("patient_id").to_csv(p, float_format="%.5f")
+        scores[CLASSES].rename_axis("patient_id").to_csv(p, float_format="%.5f")
         print("scores ->", p)
 
 

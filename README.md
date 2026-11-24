@@ -71,7 +71,8 @@ RNN); see `results/experiments/README.md`. On Deucalion: `scripts/deucalion_cnn.
 Needs the `fold*.pt` of the model, i.e. train it first (above).
 
 ```bash
-python -m src.predict --wav-dir path/to/wavs --model cnn --out predictions.csv    # columns patient_id,murmur
+python -m src.predict --wav-dir path/to/wavs --models cnn --out predictions.csv   # columns patient_id,murmur
+python -m src.predict --wav-dir path/to/wavs --models rnn rnn_s1 rnn_s2 rnn_s3     # ensemble of runs
 ```
 
 Files must be named `<patient_id>_<location>.wav` (CirCor convention). The recordings go through the same
@@ -90,6 +91,46 @@ python -m src.predict --wav-dir $D/test_data --template $D/PLX_GYY_test_results.
 
 `--template` keeps the template's row order and stops if a patient is missing; `--probs` also writes the patient
 scores (`P(Present)`, `P(Unknown)`) to `submission/PL3_G08_test_results_scores.csv`, for checking only.
+
+## Final experiments (November 2026)
+
+Four questions, all on the same 5 CV folds and the same 4 seeds (42, 1, 2, 3) as the reference runs
+`cnn, cnn_s1..s3` / `rnn, rnn_s1..s3`; every number is recomputed from `oof.csv` by `src/compare_runs.py`.
+
+| Question | How | Runs |
+|---|---|---|
+| Does data augmentation help? | `--no-spec-augment --no-random-crop` | `{cnn,rnn}_noaug_s{42,1,2,3}` |
+| Demographics from the start? | wide branch, `--demo age height` (`src/demographics.py`) | `{cnn,rnn}_demo_s{42,1,2,3}` |
+| Demographics on top of the model we have? | stacking, `src/stacking.py` (no retraining) | `stack_{cnn,rnn}/` |
+| Final model of the hidden set | best configuration retrained on all labelled patients, `--include-test` | `{cnn,rnn}_final_s{42,1,2,3}` |
+
+The demographic fields were chosen in `notebooks/01_eda.ipynb` §10 (available and non-constant in the hidden set,
+not derived from the label, associated with `Murmur`, not redundant): **age group + height**. A demographic option
+is adopted only with the rule of the project: mean WA +0.02 over the same model without it, better in ≥ 4/5 folds.
+
+On Deucalion (login node, from the repo; `ACC` is the GPU account used with `sbatch -A`):
+
+```bash
+export PROJ=/projects/F202500007HPCVLABUPORTO/amarcos.up ACC=<account_g>
+cd $PROJ/FCUP-DL-ML2 && git pull
+# 1. quick check of the new options (1 fold, 2 epochs, dev partition)
+sbatch -A $ACC -p dev-a100-40 -t 00:30:00 scripts/deucalion_cnn.sbatch --epochs 2 --folds 0 --demo age height --name smoke_cnn_demo
+sbatch -A $ACC -p dev-a100-40 -t 00:30:00 scripts/deucalion_rnn.sbatch --epochs 2 --folds 0 --demo age height --include-test --name smoke_rnn_final
+# 2. all experiments: 16 trainings + 2 stacking jobs + 2 comparisons (after the trainings)
+bash scripts/submit_experiments.sh            # or one block: noaug | demo | stack
+# 3. read logs/compare-cnn-*.out, logs/compare-rnn-*.out, logs/stack-*.out (or fetch results/ and logs/)
+# 4. final model + hidden-set prediction with the chosen configuration, e.g.
+bash scripts/submit_final.sh rnn                                  # audio only
+bash scripts/submit_final.sh rnn --demo age height                # demographics from the start
+STACK=meta_age_height bash scripts/submit_final.sh rnn            # + stacking refitted on the final runs
+```
+
+`scripts/submit_final.sh` trains 4 seeds with `--include-test` (the 189 test patients join the training set of
+every fold; validation, early stopping and thresholds stay on the CV folds), then `src.predict` averages the
+20 fold models, applies the thresholds tuned on their averaged out-of-fold predictions and writes
+`submission/PL3_G08_test_results.csv` (+ `_scores.csv`, `_info.json`). The hidden set must be in
+`data/hidden/CirCor_test_students/` (`data/CirCor_test_students/` also works, or set `HIDDEN=...`). These runs cannot be
+evaluated on the test fold any more; the test-fold results of the report stay those of `cnn` / `rnn`.
 
 ## Evaluation protocol
 

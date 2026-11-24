@@ -21,6 +21,15 @@ Training (DEFAULT_CNN_CFG, also used by the RNN): cross-entropy with inverse-fre
 Adam lr 1e-3, weight decay 1e-4, batch 128, constant lr, up to 50 epochs with early stopping on the
 validation loss (patience 8, best weights kept), SpecAugment (1 frequency + 1 time mask) and random time
 shift of up to +-2 s.
+
+Options added for the final experiments (also in src.models.rnn):
+    --no-spec-augment --no-random-crop   train without data augmentation (ablation)
+    --demo age height                    demographics from the start: a wide branch (linear n_demo -> 16 + ReLU)
+                                         whose output is concatenated to the pooled audio features before the
+                                         classifier (as HearHeart). Encoded with src.demographics.DemoEncoder,
+                                         fitted on the training patients of each fold and saved in fold*.pt.
+    --include-test                       add the test patients (fold -1) to the training set of every fold, for
+                                         the final models of the hidden set. Validation stays on the CV folds.
 """
 import argparse
 import copy
@@ -31,6 +40,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from src import demographics
 from src.data import CLASSES
 from src.datasets import CNNWindows, class_weights, fold_masks, load_processed, mel_band_stats
 from src.evaluate import RESULTS_DIR, result_dir, cv_report, patient_scores, save_oof, summary, tune_thresholds
@@ -52,6 +62,10 @@ DEFAULT_CNN_CFG = dict(
     scheduler="none",        # "none" (constant lr) or "plateau" (ReduceLROnPlateau on the monitored metric)
     plateau_patience=3,      # epochs without improvement before the lr is divided by 1/lr_factor
     lr_factor=0.1,
+    demo_features=[],        # e.g. ["age", "height"]: demographics as a wide branch (empty = audio only)
+    n_demo=0,                # width of the encoded demographics (set from demo_features)
+    demo_hidden=16,          # units of the wide branch
+    include_test=False,      # True: test patients (fold -1) also in the training set (final models only)
 )
 
 
@@ -82,9 +96,13 @@ def apply_spec_augment(x, max_freq_mask=8, max_time_mask=40):
 # -----------------------------------------------------------------------------
 
 class HeartMurmurCNN(nn.Module):
-    """Four strided conv blocks (16 -> 32 -> 64 -> 128 maps), global average pooling, MLP head."""
-    def __init__(self, n_classes=len(CLASSES), dropout=0.3):
+    """Four strided conv blocks (16 -> 32 -> 64 -> 128 maps), global average pooling, MLP head.
+    n_demo > 0 adds the demographic wide branch (linear n_demo -> demo_hidden + ReLU), concatenated to the
+    128 pooled features; with n_demo = 0 the network (and its state_dict) is the original one."""
+    def __init__(self, n_classes=len(CLASSES), dropout=0.3, n_demo=0, demo_hidden=16):
         super().__init__()
+        self.demo = nn.Sequential(nn.Linear(n_demo, demo_hidden), nn.ReLU(inplace=True)) if n_demo else None
+        head_in = 128 + (demo_hidden if n_demo else 0)
         self.features = nn.Sequential(
             # Block 1: [B, 1, 40, 401] -> [B, 16, 20, 201]
             nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
@@ -112,16 +130,34 @@ class HeartMurmurCNN(nn.Module):
 
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(128, 64),
+            nn.Linear(head_in, 64),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(64, n_classes),
         )
 
-    def forward(self, x):
+    def forward(self, x, demo=None):
         feat = self.features(x)
         feat = torch.flatten(feat, 1)
+        if self.demo is not None:
+            if demo is None:
+                raise ValueError("this model was trained with demographics: pass demo")
+            feat = torch.cat([feat, self.demo(demo)], dim=1)
         return self.classifier(feat)
+
+
+def unpack_batch(batch, dev):
+    """(x, y) or (x, demo, y) from a CNNWindows loader -> tensors on dev (demo None if absent)."""
+    if len(batch) == 3:
+        x, z, y = batch
+        return x.to(dev), z.to(dev), y.to(dev)
+    x, y = batch
+    return x.to(dev), None, y.to(dev)
+
+
+def run_model(model, x, z):
+    """Forward pass with or without demographics (networks without a demo input take x only)."""
+    return model(x) if z is None else model(x, z)
 
 
 # -----------------------------------------------------------------------------
@@ -139,8 +175,9 @@ def predict_cnn_proba(model, ds, cfg):
     model.eval()
     probs = []
     with torch.no_grad():
-        for x, _ in loader(ds, cfg, shuffle=False):
-            probs.append(torch.softmax(model(x.to(dev)), dim=1).cpu().numpy())
+        for batch in loader(ds, cfg, shuffle=False):
+            x, z, _ = unpack_batch(batch, dev)
+            probs.append(torch.softmax(run_model(model, x, z), dim=1).cpu().numpy())
     return np.concatenate(probs, axis=0)
 
 
@@ -162,7 +199,9 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0, model_fn=None):
     np.random.seed(cfg["seed"] + fold_idx)
     dev = device()
 
-    model = (model_fn(cfg) if model_fn else HeartMurmurCNN(dropout=cfg["dropout"])).to(dev)
+    model = (model_fn(cfg) if model_fn else
+             HeartMurmurCNN(dropout=cfg["dropout"], n_demo=cfg.get("n_demo", 0),
+                            demo_hidden=cfg.get("demo_hidden", 16))).to(dev)
     w = torch.from_numpy(class_weights(ds_tr.y, power=cfg["weight_power"])).to(dev)
     loss_fn = nn.CrossEntropyLoss(weight=w)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
@@ -179,12 +218,12 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0, model_fn=None):
     for epoch in range(cfg["max_epochs"]):
         model.train()
         train_loss = 0.0
-        for x_b, y_b in train_loader:
+        for batch in train_loader:
+            x_b, z_b, y_b = unpack_batch(batch, dev)
             if cfg["spec_augment"]:
                 x_b = apply_spec_augment(x_b)
-            x_b, y_b = x_b.to(dev), y_b.to(dev)
             optimizer.zero_grad()
-            loss = loss_fn(model(x_b), y_b)
+            loss = loss_fn(run_model(model, x_b, z_b), y_b)
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * len(x_b)
@@ -193,9 +232,9 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0, model_fn=None):
         model.eval()
         val_loss, correct, total, probs = 0.0, 0, 0, []
         with torch.no_grad():
-            for x_v, y_v in val_loader:
-                x_v, y_v = x_v.to(dev), y_v.to(dev)
-                logits = model(x_v)
+            for batch in val_loader:
+                x_v, z_v, y_v = unpack_batch(batch, dev)
+                logits = run_model(model, x_v, z_v)
                 val_loss += loss_fn(logits, y_v).item() * len(x_v)
                 correct += (logits.argmax(dim=1) == y_v).sum().item()
                 total += len(y_v)
@@ -233,31 +272,53 @@ def best_epoch(hist, cfg):
 
 
 def cross_validate_cnn(d, cfg=DEFAULT_CNN_CFG, folds=range(5), model_fn=None):
-    """One model per CV fold (test patients, fold -1, are never used).
+    """One model per CV fold. Test patients (fold -1) are never used, unless cfg["include_test"] (final
+    models only: then they are added to the training set of every fold, never to validation).
+
+    With cfg["demo_features"], a DemoEncoder is fitted on the training patients of each fold and the
+    datasets serve (x, demo, y); the encoder is kept in the run (saved in fold*.pt).
 
     Returns the validation windows of `folds` (rows of d.windows, original index kept),
-    their out-of-fold probabilities, and per fold a dict with model, band_stats and history."""
+    their out-of-fold probabilities, and per fold a dict with model, band_stats, demo_encoder and history."""
     dev_mask = d.windows["fold"].isin(folds).to_numpy()
     oof = np.full((len(d.windows), len(CLASSES)), np.nan, dtype=np.float32)
+    feats = list(cfg.get("demo_features") or [])
+    table = demographics.read_table() if feats else None
     runs = []
     for k in folds:
-        tr, va, _ = fold_masks(d.windows, val_fold=k)
+        tr, va, _ = fold_masks(d.windows, val_fold=k, include_test=cfg.get("include_test", False))
         band_stats = mel_band_stats(d, tr)
-        ds_tr = CNNWindows(d, tr, band_stats, label_col=cfg["label_col"], random_crop=cfg["random_crop"])
-        ds_va = CNNWindows(d, va, band_stats, label_col=cfg["label_col"])
+        enc, z_tr, z_va = None, None, None
+        if feats:
+            enc = demographics.fit_on_windows(feats, table, d.windows[tr])
+            z_tr = demographics.window_matrix(enc, table, d.windows[tr])
+            z_va = demographics.window_matrix(enc, table, d.windows[va])
+        ds_tr = CNNWindows(d, tr, band_stats, label_col=cfg["label_col"], random_crop=cfg["random_crop"], demo=z_tr)
+        ds_va = CNNWindows(d, va, band_stats, label_col=cfg["label_col"], demo=z_va)
         model, hist = train_cnn(ds_tr, ds_va, cfg, fold_idx=k, model_fn=model_fn)
         oof[va] = predict_cnn_proba(model, ds_va, cfg)
-        runs.append({"fold": k, "model": model, "band_stats": band_stats, "history": hist})
+        runs.append({"fold": k, "model": model, "band_stats": band_stats, "history": hist,
+                     "demo_encoder": enc.state() if enc else None})
         best = hist.loc[best_epoch(hist, cfg)]
         print(f"==> Fold {k}: best epoch {int(best.epoch)+1} | val loss {best.val_loss:.4f} | "
               f"val acc {best.val_acc:.4f} | val WA {best.val_wa:.4f}\n", flush=True)
     return d.windows[dev_mask], oof[dev_mask], runs
 
 
-def predict_ensemble_cnn(runs, d, mask, cfg=DEFAULT_CNN_CFG):
-    """Average window probabilities of all fold models (each with its own band statistics)."""
-    return np.mean([predict_cnn_proba(r["model"].to(device()), CNNWindows(d, mask, r["band_stats"]), cfg)
-                    for r in runs], axis=0)
+def run_demo(run, table, windows):
+    """Encoded demographics of `windows` for a fold model trained with them (None otherwise)."""
+    if not run.get("demo_encoder"):
+        return None
+    enc = demographics.DemoEncoder.from_state(run["demo_encoder"])
+    return demographics.window_matrix(enc, table if table is not None else demographics.read_table(), windows)
+
+
+def predict_ensemble_cnn(runs, d, mask, cfg=DEFAULT_CNN_CFG, table=None):
+    """Average window probabilities of all fold models (each with its own band statistics and, if it uses
+    them, its own demographic encoder; `table` defaults to training_data.csv)."""
+    return np.mean([predict_cnn_proba(r["model"].to(device()),
+                                      CNNWindows(d, mask, r["band_stats"], demo=run_demo(r, table, d.windows[mask])),
+                                      cfg) for r in runs], axis=0)
 
 
 # -----------------------------------------------------------------------------
@@ -266,7 +327,8 @@ def predict_ensemble_cnn(runs, d, mask, cfg=DEFAULT_CNN_CFG):
 
 def save_runs(runs, cfg, out_dir):
     for r in runs:
-        torch.save({"cfg": cfg, "state_dict": r["model"].state_dict(), "band_stats": r["band_stats"]},
+        torch.save({"cfg": cfg, "state_dict": r["model"].state_dict(), "band_stats": r["band_stats"],
+                    "demo_encoder": r.get("demo_encoder")},
                    out_dir / f"fold{r['fold']}.pt")
         r["history"].to_csv(out_dir / f"history_fold{r['fold']}.csv", index=False)
 
@@ -275,15 +337,39 @@ def load_runs(out_dir=result_dir("cnn")):
     runs = []
     for p in sorted(out_dir.glob("fold*.pt")):
         ck = torch.load(p, map_location=device(), weights_only=False)
-        model = HeartMurmurCNN(dropout=ck["cfg"]["dropout"]).to(device())
+        c = ck["cfg"]
+        model = HeartMurmurCNN(dropout=c["dropout"], n_demo=c.get("n_demo", 0),
+                               demo_hidden=c.get("demo_hidden", 16)).to(device())
         model.load_state_dict(ck["state_dict"])
-        runs.append({"fold": int(p.stem[4:]), "model": model.eval(), "band_stats": ck["band_stats"]})
+        runs.append({"fold": int(p.stem[4:]), "model": model.eval(), "band_stats": ck["band_stats"],
+                     "demo_encoder": ck.get("demo_encoder")})
     return runs
+
+
+def add_experiment_args(ap):
+    """--demo and --include-test, shared by src.models.cnn and src.models.rnn."""
+    ap.add_argument("--demo", nargs="+", default=[], choices=list(demographics.ALL_FEATURES), metavar="FEATURE",
+                    help=f"demographics as a wide branch, e.g. --demo age height (choices {demographics.ALL_FEATURES})")
+    ap.add_argument("--demo-hidden", type=int, default=DEFAULT_CNN_CFG["demo_hidden"])
+    ap.add_argument("--include-test", action="store_true",
+                    help="also train on the test patients (fold -1): final models for the hidden set only")
+
+
+def experiment_cfg(a):
+    """Config entries of add_experiment_args."""
+    feats = list(a.demo)
+    if a.include_test:
+        print("NOTE: --include-test: the test patients (fold -1) are in the training set of every fold. "
+              "The CV results stay valid (validation = CV folds), but this run can no longer be evaluated "
+              "on the test fold.", flush=True)
+    return dict(demo_features=feats, n_demo=demographics.DemoEncoder(feats).dim if feats else 0,
+                demo_hidden=a.demo_hidden, include_test=a.include_test)
 
 
 def main():
     ap = argparse.ArgumentParser()
     c = DEFAULT_CNN_CFG
+    add_experiment_args(ap)
     ap.add_argument("--epochs", type=int, default=c["max_epochs"])
     ap.add_argument("--patience", type=int, default=c["patience"])
     ap.add_argument("--lr", type=float, default=c["lr"])
@@ -304,7 +390,7 @@ def main():
     cfg = c | dict(seed=a.seed, max_epochs=a.epochs, patience=a.patience, lr=a.lr, batch_size=a.batch_size, dropout=a.dropout,
                    weight_power=a.weight_power, spec_augment=not a.no_spec_augment,
                    random_crop=not a.no_random_crop, num_workers=a.workers, monitor=a.monitor,
-                   scheduler=a.scheduler, plateau_patience=a.plateau_patience)
+                   scheduler=a.scheduler, plateau_patience=a.plateau_patience) | experiment_cfg(a)
     print(cfg, "| device:", device(), flush=True)
 
     d = load_processed(mmap=not a.in_memory)

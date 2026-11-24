@@ -54,10 +54,17 @@ def load_processed(proc_dir=PROC_DIR, mmap=True):
     )
 
 
-def fold_masks(df, val_fold):
-    """Train = CV folds except val_fold; val = val_fold; test = fold -1 (never for decisions)."""
+def fold_masks(df, val_fold, include_test=False):
+    """Train = CV folds except val_fold; val = val_fold; test = fold -1 (never for decisions).
+
+    include_test=True adds the test patients (fold -1) to the training set of every fold. Only for the
+    final models of the hidden-set prediction, after the test fold has been evaluated: validation (early
+    stopping, out-of-fold predictions, thresholds) still uses CV folds only."""
     f = df["fold"].to_numpy()
-    return (f >= 0) & (f != val_fold), f == val_fold, f == -1
+    train = (f >= 0) & (f != val_fold)
+    if include_test:
+        train |= f == -1
+    return train, f == val_fold, f == -1
 
 
 def encode(labels):
@@ -134,15 +141,22 @@ try:
         random_crop=True shifts each window by a random offset of up to +-half a window
         every epoch, so the network sees different crops of the same recording (cheap
         time-shift augmentation).
+
+        demo: optional float32 array (n_windows_in_mask, n_demo) of encoded patient demographics
+        (src.demographics.window_matrix), aligned with the windows of `mask`. With it, items are
+        (x, demo, y) instead of (x, y).
         """
 
-        def __init__(self, d, mask, band_stats, label_col="rec_label", random_crop=False):
+        def __init__(self, d, mask, band_stats, label_col="rec_label", random_crop=False, demo=None):
             self.d = d
             self.rows = d.windows[mask].reset_index(drop=True)
             self.y = encode(self.rows[label_col])
             self.mean, self.std = band_stats
             self.n_frames = d.config["frames_per_window"]
             self.random_crop = random_crop
+            self.demo = None if demo is None else np.asarray(demo, dtype=np.float32)
+            if self.demo is not None and len(self.demo) != len(self.rows):
+                raise ValueError(f"demo has {len(self.demo)} rows for {len(self.rows)} windows")
 
         def __len__(self):
             return len(self.rows)
@@ -150,7 +164,10 @@ try:
         def __getitem__(self, i):
             off = np.random.randint(-self.n_frames // 2, self.n_frames // 2) if self.random_crop else 0
             x = (mel_window(self.d, self.rows.iloc[i], self.n_frames, off) - self.mean) / self.std
-            return torch.from_numpy(x[None].astype(np.float32)), int(self.y[i])
+            x = torch.from_numpy(x[None].astype(np.float32))
+            if self.demo is None:
+                return x, int(self.y[i])
+            return x, torch.from_numpy(self.demo[i]), int(self.y[i])
 
 except ImportError:  # torch not installed: numpy helpers above still work
     pass
