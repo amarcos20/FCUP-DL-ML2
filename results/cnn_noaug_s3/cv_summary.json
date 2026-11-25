@@ -1,0 +1,53 @@
+{
+  "wa_mean": 0.6984309059431733,
+  "wa_std": 0.0464319154924051,
+  "wa_pooled": 0.6985345429169574,
+  "recall": {
+    "Present": 0.7062937062937062,
+    "Unknown": 0.18518518518518517,
+    "Absent": 0.8381294964028777
+  },
+  "confusion": [
+    [
+      101,
+      9,
+      75
+    ],
+    [
+      1,
+      10,
+      15
+    ],
+    [
+      41,
+      35,
+      466
+    ]
+  ],
+  "cfg": {
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "batch_size": 128,
+    "max_epochs": 50,
+    "patience": 8,
+    "weight_power": 1.0,
+    "dropout": 0.3,
+    "spec_augment": false,
+    "random_crop": false,
+    "label_col": "rec_label",
+    "num_workers": 16,
+    "seed": 3,
+    "monitor": "loss",
+    "scheduler": "none",
+    "plateau_patience": 3,
+    "lr_factor": 0.1,
+    "demo_features": [],
+    "n_demo": 0,
+    "demo_hidden": 16,
+    "include_test": false
+  },
+  "thresholds": [
+    0.425,
+    0.75
+  ]
+}
