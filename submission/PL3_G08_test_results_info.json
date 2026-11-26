@@ -1,0 +1,13 @@
+{
+  "runs": [
+    "rnn_final_s42",
+    "rnn_final_s1",
+    "rnn_final_s2",
+    "rnn_final_s3"
+  ],
+  "thresholds": [
+    0.525,
+    0.675
+  ],
+  "stack": null
+}
