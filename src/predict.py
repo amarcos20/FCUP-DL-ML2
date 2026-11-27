@@ -1,34 +1,21 @@
-"""Predict the murmur label of new patients (e.g. the hidden data of the bonus) from their .wav files.
+"""Predict the murmur label of new patients (e.g. the hidden set) from their .wav files.
 
-The recordings go through exactly the same pipeline as in training:
-    load at 4 kHz, band-pass 25-1000 Hz, z-score (src.features.load_audio)
-    -> log-mel 40 bands x 10 ms of the whole recording (src.features.logmel)
-    -> 4 s windows with 2 s hop (src.features.window_starts), 401 frames each
-    -> for each fold model of each run: per-band standardisation with that fold's training statistics (and, for
-       models trained with --demo, the patient's demographics encoded with that fold's encoder), softmax
-       probabilities per window; fold models are averaged within a run, then runs are averaged (ensemble)
-    -> mean over the windows of each recording, then per patient the maximum of P(Present) and
-       P(Unknown) over its recordings (src.datasets.aggregate_to_patient, how="max")
-    -> hierarchical rule: Present if P(Present) >= t1, else Unknown if P(Unknown) >= t2, else Absent.
-       One run: its final thresholds (results/<run>/cv_summary.json). Several runs: thresholds tuned on the
-       average of their out-of-fold predictions (needs data/processed/windows.csv).
-    -> optional --stack results/<name>/stack_<variant>.json (src.stacking): the patient scores and the
-       demographics go through the stacked logistic regression, with its own thresholds.
+Same pipeline as in training: load at 4 kHz, band-pass 25-1000 Hz, z-score -> log-mel (40 bands, 10 ms) ->
+4 s windows with 2 s hop -> each fold model standardises with its own training statistics (and encodes the
+demographics, for --demo models) -> softmax per window, averaged over fold models and over runs -> mean per
+recording, max per patient -> Present if P(Present) >= t1, else Unknown if P(Unknown) >= t2, else Absent.
+Thresholds: those of the run (one run) or tuned on the averaged out-of-fold predictions (several runs).
+--stack applies a meta-model of src.stacking with its own thresholds.
 
-File names must follow the CirCor convention <patient_id>_<location>[_<n>].wav (e.g. 50052_AV.wav,
-50052_MV_1.wav): the patient id is the part before the first "_". Sub-folders are searched too.
+File names follow the CirCor convention <patient_id>_<location>[_<n>].wav; sub-folders are searched too.
 
-Usage:
-    python -m src.predict --wav-dir path/to/wavs                                  # results/cnn -> predictions_cnn.csv
-    python -m src.predict --wav-dir path/to/wavs --models rnn rnn_s1 rnn_s2 rnn_s3   # seed ensemble
+    python -m src.predict --wav-dir path/to/wavs --models rnn rnn_s1 rnn_s2 rnn_s3
 
-Hidden test set of the bonus (data/hidden/CirCor_test_students, see its README): the submission follows the template
-PLX_GYY_test_results.csv (columns ID,Murmur, all 100 rows). --template fills that file in its own row order and
-stops if a patient has no prediction. --demographics is required by models trained with --demo and by --stack:
-    python -m src.predict --wav-dir data/hidden/CirCor_test_students/test_data \\
-        --models rnn_final_s42 rnn_final_s1 rnn_final_s2 rnn_final_s3 \\
-        --demographics data/hidden/CirCor_test_students/test_data_participants.csv \\
-        --template data/hidden/CirCor_test_students/PLX_GYY_test_results.csv --out submission/PL3_G08_test_results.csv --probs
+Hidden set (submission in the format of the template PLX_GYY_test_results.csv, columns ID,Murmur):
+    D=data/hidden/CirCor_test_students
+    python -m src.predict --wav-dir $D/test_data --models rnn_final_s42 rnn_final_s1 rnn_final_s2 rnn_final_s3 \\
+        --demographics $D/test_data_participants.csv --template $D/PLX_GYY_test_results.csv \\
+        --out submission/PL3_G08_test_results.csv --probs
 """
 import argparse
 import json

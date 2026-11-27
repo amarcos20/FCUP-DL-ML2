@@ -1,33 +1,20 @@
-"""Stacking ("late fusion"): the audio model we already have + demographics -> multinomial logistic regression.
+"""Stacking (late fusion): averaged out-of-fold scores of an audio model + demographics -> logistic regression.
 
-The CNN / RNN are NOT retrained. Their out-of-fold predictions (results/<run>/oof.csv; several runs, e.g. the
-4 seeds, are averaged) give each CV patient two scores, P(Present) and P(Unknown) (src.evaluate.patient_scores,
-max over recordings). A small multinomial logistic regression combines them with the selected demographics
-(src.demographics: age one-hot, height z-score + missing flag) and outputs P(Present / Unknown / Absent);
-the usual two-threshold rule gives the class. Compare with the other option, demographics fed to the network
-from the start (src.models.cnn / rnn --demo).
+The CNN / RNN are not retrained. For each CV patient the averaged oof.csv of `--runs` gives P(Present) and
+P(Unknown) (max over recordings). A multinomial logistic regression (class_weight="balanced", L2 with C) takes
+their logits (standardised) plus the encoded demographics; the usual two-threshold rule gives the class.
 
-Meta-features: logit of the two audio scores (standardised with training statistics) + encoded demographics.
-Model: sklearn LogisticRegression (softmax over 3 classes), class_weight="balanced", L2 with C (default 1).
+Evaluation is nested on the 5 CV folds (the test fold is not used): for each outer fold the encoder and the
+regression are fitted on the other 4 folds, and the thresholds are tuned on an inner CV over those 4 folds.
 
-Evaluation, fully nested on the 5 CV folds (the test fold is not used):
-    for each outer fold k:
-        fit the encoder + logistic regression on the other 4 folds, predict fold k
-        thresholds: inner CV over those 4 folds (fit on 3, predict 1) -> out-of-fold meta scores -> tune_thresholds
-        WA of fold k with these thresholds
-Variants (--variants), all with the same folds:
-    base              the audio model alone, current rule (src.evaluate.cv_report): the reference of the project
-    meta_audio        logistic regression on the audio scores only: isolates the effect of the meta-model itself
-    meta_age          + age
-    meta_age_height   + age + height
-Adoption rule (same as the iterations of the project): a demographic variant is adopted over meta_audio only if
-its mean WA is >= 0.02 higher AND it is better in at least 4 of the 5 folds.
+Variants: base (the audio model alone, src.evaluate.cv_report), meta_audio (regression on the audio scores only),
+meta_age, meta_age_height. The printed adoption rule (+0.02 mean WA and better in >= 4/5 folds) compares each
+demographic variant with meta_audio; the comparison with base is in notebooks/07_final_experiments.ipynb.
 
-Usage (CPU, seconds; on Deucalion through scripts/deucalion_py.sbatch):
     python -m src.stacking --runs rnn rnn_s1 rnn_s2 rnn_s3 --name stack_rnn
-    python -m src.stacking --runs cnn cnn_s1 cnn_s2 cnn_s3 --name stack_cnn
-Outputs results/<name>/: stacking_summary.json (all variants), stack_<variant>.json (each meta-model refitted on
-all CV patients, with thresholds tuned on its out-of-fold scores; for src.predict --stack) and meta_oof_<variant>.csv.
+
+Outputs in results/<name>/: stacking_summary.json, stack_<variant>.json (meta-model refitted on all CV patients,
+with its thresholds; for src.predict --stack) and meta_oof_<variant>.csv.
 """
 import argparse
 import json

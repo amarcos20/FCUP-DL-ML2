@@ -19,10 +19,22 @@ and evaluation.
 
 Patient-level confusion matrices, per-class recall and final thresholds are in `results/{cnn,rnn}/cv_summary.json`
 and in `reports/report.pdf`; the test-fold matrices are in the last cell of `notebooks/06_cnn_rnn.ipynb`.
-The CNN was chosen by cross-validation, before the test fold was evaluated, and is the model of the bonus submission.
 
 For comparison (same folds and evaluation, in `results/experiments/`): the MLP we started with, 0.648 ± 0.026;
 HearHeart, winner of the Challenge, re-implemented from its official code, 0.750 ± 0.030.
+
+**Final experiments and submission** (`notebooks/07_final_experiments.ipynb`, 4 seeds per configuration):
+
+| 4-seed ensemble, 5-fold CV | CNN | RNN |
+|---|---|---|
+| audio, with data augmentation (reference) | 0.763 | **0.767** |
+| without data augmentation | 0.712 | 0.731 |
+| + age + height from the start (wide branch) | 0.757 | 0.767 |
+| + age + height by stacking (logistic regression) | 0.740 | 0.769 |
+
+Augmentation is clearly useful; no demographic variant passes the adoption rule (+0.02 WA and better in ≥ 4/5
+folds). The hidden-set submission is therefore the **RNN, audio only, 4 seeds retrained with the test fold**
+(`rnn_final_s{42,1,2,3}`, CV WA of the ensemble 0.771).
 
 ## What is in this repository
 
@@ -79,58 +91,40 @@ Files must be named `<patient_id>_<location>.wav` (CirCor convention). The recor
 pre-processing as in training; the 5 fold models are averaged; windows are averaged per recording and each patient
 takes the maximum over its recordings; the final thresholds of `results/<model>/cv_summary.json` give the label.
 
-Hidden test set of the bonus (100 patients, campaign CC2015, no labels), extracted to
-`data/hidden/CirCor_test_students/`. Its README asks for the template `PLX_GYY_test_results.csv` (columns
-`ID,Murmur`, all 100 rows), which takes precedence over the `patient_id,murmur` example of the project PDF:
+Hidden test set of the bonus (100 patients, campaign CC2015, no labels) in `data/hidden/CirCor_test_students/`.
+The submission follows its template `PLX_GYY_test_results.csv` (columns `ID,Murmur`, all 100 rows); `--template`
+keeps the template's row order and stops if a patient is missing, `--probs` also saves the patient scores.
+The submitted file is produced by `scripts/submit_final.sh rnn` (next section), which runs:
 
 ```bash
 D=data/hidden/CirCor_test_students
-python -m src.predict --wav-dir $D/test_data --template $D/PLX_GYY_test_results.csv \
+python -m src.predict --wav-dir $D/test_data --models rnn_final_s42 rnn_final_s1 rnn_final_s2 rnn_final_s3 \
+    --demographics $D/test_data_participants.csv --template $D/PLX_GYY_test_results.csv \
     --out submission/PL3_G08_test_results.csv --probs
 ```
 
-`--template` keeps the template's row order and stops if a patient is missing; `--probs` also writes the patient
-scores (`P(Present)`, `P(Unknown)`) to `submission/PL3_G08_test_results_scores.csv`, for checking only.
-
-## Final experiments (November 2026)
-
-Four questions, all on the same 5 CV folds and the same 4 seeds (42, 1, 2, 3) as the reference runs
-`cnn, cnn_s1..s3` / `rnn, rnn_s1..s3`; every number is recomputed from `oof.csv` by `src/compare_runs.py`.
+## Final experiments and final model
 
 | Question | How | Runs |
 |---|---|---|
 | Does data augmentation help? | `--no-spec-augment --no-random-crop` | `{cnn,rnn}_noaug_s{42,1,2,3}` |
 | Demographics from the start? | wide branch, `--demo age height` (`src/demographics.py`) | `{cnn,rnn}_demo_s{42,1,2,3}` |
-| Demographics on top of the model we have? | stacking, `src/stacking.py` (no retraining) | `stack_{cnn,rnn}/` |
-| Final model of the hidden set | best configuration retrained on all labelled patients, `--include-test` | `{cnn,rnn}_final_s{42,1,2,3}` |
+| Demographics on top of the audio model? | stacking, `src/stacking.py` (no retraining) | `stack_{cnn,rnn}/` |
+| Final model of the hidden set | RNN retrained with the test fold, `--include-test` | `rnn_final_s{42,1,2,3}` |
 
-The demographic fields were chosen in `notebooks/01_eda.ipynb` §10 (available and non-constant in the hidden set,
-not derived from the label, associated with `Murmur`, not redundant): **age group + height**. A demographic option
-is adopted only with the rule of the project: mean WA +0.02 over the same model without it, better in ≥ 4/5 folds.
-
-On Deucalion (login node, from the repo; `ACC` is the GPU account used with `sbatch -A`):
+The demographic fields (age group + height) were chosen in `notebooks/01_eda.ipynb` §10. Every number is
+recomputed from `oof.csv` (`src/compare_runs.py`, notebook 07). On Deucalion (`ACC` = GPU account of `sbatch -A`):
 
 ```bash
 export PROJ=/projects/F202500007HPCVLABUPORTO/amarcos.up ACC=<account_g>
-cd $PROJ/FCUP-DL-ML2 && git pull
-# 1. quick check of the new options (1 fold, 2 epochs, dev partition)
-sbatch -A $ACC -p dev-a100-40 -t 00:30:00 scripts/deucalion_cnn.sbatch --epochs 2 --folds 0 --demo age height --name smoke_cnn_demo
-sbatch -A $ACC -p dev-a100-40 -t 00:30:00 scripts/deucalion_rnn.sbatch --epochs 2 --folds 0 --demo age height --include-test --name smoke_rnn_final
-# 2. all experiments: 16 trainings + 2 stacking jobs + 2 comparisons (after the trainings)
-bash scripts/submit_experiments.sh            # or one block: noaug | demo | stack
-# 3. read logs/compare-cnn-*.out, logs/compare-rnn-*.out, logs/stack-*.out (or fetch results/ and logs/)
-# 4. final model + hidden-set prediction with the chosen configuration, e.g.
-bash scripts/submit_final.sh rnn                                  # audio only
-bash scripts/submit_final.sh rnn --demo age height                # demographics from the start
-STACK=meta_age_height bash scripts/submit_final.sh rnn            # + stacking refitted on the final runs
+bash scripts/submit_experiments.sh        # 16 trainings + stacking + comparisons (or one block: noaug | demo | stack)
+bash scripts/submit_final.sh rnn          # final model + hidden-set prediction
 ```
 
-`scripts/submit_final.sh` trains 4 seeds with `--include-test` (the 189 test patients join the training set of
-every fold; validation, early stopping and thresholds stay on the CV folds), then `src.predict` averages the
-20 fold models, applies the thresholds tuned on their averaged out-of-fold predictions and writes
-`submission/PL3_G08_test_results.csv` (+ `_scores.csv`, `_info.json`). The hidden set must be in
-`data/hidden/CirCor_test_students/` (`data/CirCor_test_students/` also works, or set `HIDDEN=...`). These runs cannot be
-evaluated on the test fold any more; the test-fold results of the report stay those of `cnn` / `rnn`.
+`submit_final.sh` trains 4 seeds with `--include-test` (the 189 test patients join the training set of every
+fold; early stopping and thresholds stay on the CV folds), then `src.predict` averages the 20 fold models, applies
+the thresholds tuned on their averaged out-of-fold predictions and writes `submission/PL3_G08_test_results.csv`
+(+ `_scores.csv`, `_info.json`). These runs can no longer be evaluated on the test fold.
 
 ## Evaluation protocol
 
@@ -163,6 +157,8 @@ src/
 ├── datasets.py                    fold masks, train-only normalisation, torch dataset, patient aggregation
 ├── evaluate.py, metrics.py        patient scores, decision rule, nested thresholds, weighted accuracy, result_dir
 ├── predict.py                     predictions for new .wav files (bonus CSV)
+├── demographics.py, stacking.py   demographic encoding; stacking of an audio model + demographics
+├── compare_runs.py                comparison of runs / seed groups from their oof.csv
 └── models/
     ├── cnn.py, rnn.py             THE TWO FINAL CLASSIFIERS (training loop shared in cnn.py, 5-fold CV)
     ├── mlp.py                     first approach (experiment)
@@ -171,8 +167,9 @@ src/
 
 | Path | Contents |
 |---|---|
-| `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn`, `05_hearheart` (Challenge winner vs our CNN), `06_cnn_rnn` (the two classifiers, iterations, comparison of all models, test cell) |
-| `results/cnn/`, `results/rnn/` | **final models**: `oof.csv`, `cv_summary.json`, `history_fold*.csv` |
+| `notebooks/` | `01_eda`, `02_preprocessing`, `03_mlp`, `04_cnn`, `05_hearheart` (Challenge winner vs our CNN), `06_cnn_rnn` (the two classifiers, iterations, comparison of all models, test cell), `07_final_experiments` (augmentation, demographics, final model) |
+| `results/cnn/`, `results/rnn/` (+ `_s1.._s3`) | the two classifiers, 4 seeds: `oof.csv`, `cv_summary.json`, `history_fold*.csv` |
+| `results/*_noaug_*`, `*_demo_*`, `stack_*`, `rnn_final_*`, `final_experiments/` | final experiments, submitted model and figures of notebook 07 |
 | `results/experiments/` | MLP, rejected iterations and HearHeart (see its README) |
 | `results/eda/`, `results/preprocessing/` | figures of notebooks 01 and 02 |
 | `submission/` | predictions on the hidden data, as submitted |

@@ -1,7 +1,6 @@
 #!/bin/bash
-# Final experiments of the CNN and the RNN, all on the 5 CV folds (the test fold is not used), 4 seeds each
-# (42, 1, 2, 3: the seeds of the reference runs cnn, cnn_s1..s3 and rnn, rnn_s1..s3). Run on the Deucalion login
-# node, from the repo folder:
+# Final experiments of the CNN and the RNN on the 5 CV folds (test fold not used), seeds 42, 1, 2, 3 as the
+# reference runs cnn, cnn_s1..s3 / rnn, rnn_s1..s3. Run on the Deucalion login node, from the repo folder:
 #
 #   export PROJ=/projects/F202500007HPCVLABUPORTO/amarcos.up ACC=<account_g>
 #   bash scripts/submit_experiments.sh            # everything
@@ -11,8 +10,8 @@
 #   noaug  data-augmentation ablation: --no-spec-augment --no-random-crop     -> results/{cnn,rnn}_noaug_s<seed>
 #   demo   demographics from the start (wide branch): --demo $DEMO           -> results/{cnn,rnn}_demo_s<seed>
 #   stack  stacking on the existing runs (no training):                       -> results/stack_{cnn,rnn}/
-#          + one comparison job (after the trainings) -> logs/ and results/comparison_final.json
-# DEMO defaults to the features chosen in notebooks/01_eda.ipynb (age height); override with DEMO="age" etc.
+# With "all", one comparison job per model runs after the trainings -> results/comparison_{cnn,rnn}.json.
+# DEMO defaults to the features chosen in notebooks/01_eda.ipynb (age height).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ACC=${ACC:?set ACC to your GPU account (the one you pass to sbatch -A)}

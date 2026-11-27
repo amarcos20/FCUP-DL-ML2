@@ -1,4 +1,4 @@
-"""Load the pre-processed data (src.prepare_data) and serve it to the MLP / CNN.
+"""Load the pre-processed data (src.prepare_data) and serve it to the models (MLP, CNN, RNN).
 
 Typical use in a training notebook:
 

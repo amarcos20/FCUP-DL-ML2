@@ -1,22 +1,15 @@
-"""Patient demographics as extra inputs: wide branch of the CNN / RNN (src.models.cnn, src.models.rnn, --demo)
-and stacking on top of the audio models (src.stacking).
+"""Patient demographics as extra model inputs: wide branch of the CNN / RNN (--demo) and stacking (src.stacking).
 
-Only fields that exist for every patient of the hidden test set are allowed (data/hidden/CirCor_test_students/
-test_data_participants.csv: Age, Sex, Height, Weight, Pregnancy status, Campaign). The selection study is in
-notebooks/01_eda.ipynb, section "Seleção das variáveis demográficas":
-    age     kept   strongest association with Murmur (infants: many more Unknown)
-    height  kept   associated with Murmur; weight is almost the same variable (Spearman 0.95), height is stronger
-    weight  test only (redundant with height)
-    sex     dropped (no association with Murmur)
-    pregnancy, campaign  dropped (constant in the hidden set: no pregnant patients, all CC2015)
-Never use fields derived from the murmur annotation (Murmur locations, Most audible location, Systolic/Diastolic
-murmur ..., Outcome): that would leak the label.
+Only fields present for every hidden-set patient are allowed (Age, Sex, Height, Weight, Pregnancy status,
+Campaign). Selection in notebooks/01_eda.ipynb, section 10: age and height kept; weight redundant with height;
+sex not associated with Murmur; pregnancy and campaign constant in the hidden set. Fields derived from the murmur
+annotation (Murmur locations, Systolic/Diastolic murmur ..., Outcome) are never used: they leak the label.
 
-Encoding (DemoEncoder, fitted on the TRAINING patients of each fold only, then saved with the model):
-    age     one-hot over AGE_GROUPS (Neonate -> Infant; Young Adult / missing -> Other)
-    height  z-score with training mean/std, missing values -> training median, plus a 0/1 "missing" column
-    weight  same as height
-    sex     1 = Male
+Encoding (DemoEncoder, fitted on the training patients of each fold and saved with the model):
+    age        one-hot over AGE_GROUPS (Neonate -> Infant; Young Adult / missing -> Other)
+    height     z-score (training mean/std), missing -> training median, plus a 0/1 missing flag
+    weight     same as height
+    sex        1 = Male
     pregnancy  1 = True
 """
 from pathlib import Path
@@ -31,7 +24,6 @@ _AGE_MAP = {"Neonate": "Infant", "Infant": "Infant", "Child": "Child", "Adolesce
 ALL_FEATURES = ("age", "height", "weight", "sex", "pregnancy")
 DEFAULT_FEATURES = ("age", "height")          # chosen in notebooks/01_eda.ipynb
 TRAIN_TABLE = DATA_DIR / "training_data.csv"
-# hidden set: data/hidden/CirCor_test_students/ (project convention) or data/CirCor_test_students/
 _HIDDEN_DIRS = [ROOT / "data" / "hidden" / "CirCor_test_students", ROOT / "data" / "CirCor_test_students"]
 HIDDEN_DIR = next((p for p in _HIDDEN_DIRS if p.is_dir()), _HIDDEN_DIRS[0])
 HIDDEN_TABLE = HIDDEN_DIR / "test_data_participants.csv"

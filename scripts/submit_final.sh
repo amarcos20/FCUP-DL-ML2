@@ -1,20 +1,17 @@
 #!/bin/bash
-# Final model of the hidden set: train on ALL labelled patients (CV folds + test fold -1, --include-test),
-# 4 seeds, then predict the hidden set (data/hidden/CirCor_test_students) and write the submission. Run on the Deucalion login node
-# from the repo folder, AFTER choosing the configuration with the results of scripts/submit_experiments.sh:
+# Final model of the hidden set: 4 seeds trained with --include-test (CV folds + test fold -1), then the
+# prediction of the hidden set. Run on the Deucalion login node, from the repo folder:
 #
 #   export PROJ=/projects/F202500007HPCVLABUPORTO/amarcos.up ACC=<account_g>
-#   bash scripts/submit_final.sh rnn                       # RNN, audio only, with augmentation
-#   bash scripts/submit_final.sh rnn --demo age height     # RNN with demographics from the start
-#   bash scripts/submit_final.sh cnn --no-spec-augment --no-random-crop
-#   STACK=meta_age bash scripts/submit_final.sh rnn        # + stacking (variant meta_age) on the final runs
+#   bash scripts/submit_final.sh rnn                       # the submitted model (RNN, audio only, augmentation on)
+#   bash scripts/submit_final.sh rnn --demo age height     # other configurations, e.g. with demographics
+#   STACK=meta_age bash scripts/submit_final.sh rnn        # + stacking refitted on the final runs
 #
 # Everything after the model name is passed to training (src.models.<model>). Outputs:
 #   results/<model>_final_s<seed>/                     fold models trained with the test patients
 #   results/stack_<model>_final/                       (only with STACK) stacking refitted on the final runs
 #   submission/PL3_G08_test_results.csv (+ _scores.csv, _info.json)
-# The hidden set must be in data/hidden/CirCor_test_students/ (test_data/, test_data_participants.csv, template);
-# data/CirCor_test_students/ also works, or set HIDDEN=<folder>.
+# The hidden set must be in data/hidden/CirCor_test_students/ (or set HIDDEN=<folder>).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ACC=${ACC:?set ACC to your GPU account (the one you pass to sbatch -A)}

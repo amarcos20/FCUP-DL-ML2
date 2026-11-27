@@ -14,22 +14,20 @@ Network (HeartMurmurCNN, 106 083 parameters):
     [B, 1, 40, 401] -> 4 x (conv 3x3 stride 2 + BatchNorm + ReLU), 16 -> 32 -> 64 -> 128 maps, each block
     halves both axes -> [B, 128, 3, 26] -> global average pooling [B, 128]
     -> dropout 0.3 -> linear 64 + ReLU -> dropout 0.3 -> linear 3 (logits Present / Unknown / Absent).
-    Receptive field of the last layer: 31 x 31 cells = ~310 ms x 31 of the 40 mel bands, enough to see
-    S1, the systole and S2 together. Strides instead of pooling keep the network small and fast.
+    Receptive field of the last layer: 31 x 31 cells (~310 ms x 31 of the 40 mel bands). Strides instead of
+    pooling keep the network small and fast.
 
 Training (DEFAULT_CNN_CFG, also used by the RNN): cross-entropy with inverse-frequency class weights,
 Adam lr 1e-3, weight decay 1e-4, batch 128, constant lr, up to 50 epochs with early stopping on the
 validation loss (patience 8, best weights kept), SpecAugment (1 frequency + 1 time mask) and random time
 shift of up to +-2 s.
 
-Options added for the final experiments (also in src.models.rnn):
-    --no-spec-augment --no-random-crop   train without data augmentation (ablation)
-    --demo age height                    demographics from the start: a wide branch (linear n_demo -> 16 + ReLU)
-                                         whose output is concatenated to the pooled audio features before the
-                                         classifier (as HearHeart). Encoded with src.demographics.DemoEncoder,
-                                         fitted on the training patients of each fold and saved in fold*.pt.
-    --include-test                       add the test patients (fold -1) to the training set of every fold, for
-                                         the final models of the hidden set. Validation stays on the CV folds.
+Extra options (also in src.models.rnn):
+    --no-spec-augment --no-random-crop   no data augmentation (ablation)
+    --demo age height                    demographics as a wide branch (linear -> 16 + ReLU) concatenated to the
+                                         pooled audio features; encoder fitted per fold (src.demographics)
+    --include-test                       test patients (fold -1) also in the training set of every fold
+                                         (final models of the hidden set only; validation stays on the CV folds)
 """
 import argparse
 import copy
@@ -185,15 +183,10 @@ def train_cnn(ds_tr, ds_va, cfg, fold_idx=0, model_fn=None):
     """Weighted cross-entropy + Adam, early stopping on a validation metric (best weights are kept).
     model_fn(cfg) -> nn.Module swaps the network (default HeartMurmurCNN) keeping the same training.
 
-    cfg["monitor"]   "loss": validation cross-entropy per window (default).
-                     "wa":   patient-level weighted accuracy of the validation fold: window probabilities
-                             -> patient scores (src.evaluate.patient_scores) -> thresholds tuned on this fold.
-                             Aligned with the metric, but the fold that picks the epoch also tunes the
-                             thresholds, so this WA is optimistic (the reported CV WA is still nested).
-    cfg["scheduler"] "none": constant lr (default).
-                     "plateau": ReduceLROnPlateau on the monitored metric: lr x lr_factor after
-                             plateau_patience epochs without improvement (min 1e-6).
-    The validation WA is logged every epoch in both cases (column val_wa of the history)."""
+    cfg["monitor"]   "loss" (validation cross-entropy, default) or "wa" (patient-level WA of the validation
+                     fold with thresholds tuned on that fold: optimistic, used only to pick the epoch).
+    cfg["scheduler"] "none" (constant lr, default) or "plateau" (ReduceLROnPlateau on the monitored metric).
+    The validation WA is logged every epoch (column val_wa of the history)."""
     monitor, maximise = cfg.get("monitor", "loss"), cfg.get("monitor", "loss") == "wa"
     torch.manual_seed(cfg["seed"] + fold_idx)
     np.random.seed(cfg["seed"] + fold_idx)

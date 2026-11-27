@@ -3,7 +3,7 @@
 #
 #   sbatch -A <account_g> scripts/deucalion_py.sbatch src.stacking --runs rnn rnn_s1 rnn_s2 rnn_s3 --name stack_rnn
 #   sbatch -A <account_g> scripts/deucalion_py.sbatch src.compare_runs cnn,cnn_s1,cnn_s2,cnn_s3 cnn_noaug_s42,cnn_noaug_s1,cnn_noaug_s2,cnn_noaug_s3
-#   sbatch -A <account_g> scripts/deucalion_py.sbatch src.predict --wav-dir data/CirCor_test_students/test_data --models rnn ...
+#   sbatch -A <account_g> scripts/deucalion_py.sbatch src.predict --wav-dir data/hidden/CirCor_test_students/test_data --models rnn ...
 #
 # The first argument is the module (python -m <module>), the others are passed to it.
 # Expects the repo in $PROJ/FCUP-DL-ML2 with data/processed/ and the venv in $PROJ/venv_ml2_x86.

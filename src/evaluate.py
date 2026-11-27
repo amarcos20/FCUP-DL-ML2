@@ -1,4 +1,4 @@
-"""Patient-level evaluation shared by every model (MLP, CNN).
+"""Patient-level evaluation shared by every model (MLP, CNN, RNN, HearHeart).
 
 Window probabilities -> patient scores (src.datasets.aggregate_to_patient) -> hierarchical
 decision rule, as in the Challenge: Present if p(Present) >= t_present, else Unknown if
