@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPLIT_FILE = ROOT / "splits" / "split.csv"
 
 # The dataset may live in data/circor/ (download_data.py) or in the folder created by
-# unzipping the official PhysioNet zip into data/. Use whichever exists.
+# unzipping the official PhysioNet zip into data/.
 _CANDIDATES = [
     ROOT / "data" / "circor",
     ROOT / "data" / "the-circor-digiscope-phonocardiogram-dataset-1.0.3",

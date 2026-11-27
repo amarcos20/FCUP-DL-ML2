@@ -8,7 +8,7 @@ Honest CV estimate (cv_report): for each fold k the thresholds are tuned on the
 out-of-fold predictions of the other folds and applied to fold k.
 
 Out-of-fold window probabilities are saved as results/<model>/oof.csv, indexed by the row of
-data/processed/windows.csv, so models trained elsewhere (e.g. on a GPU server) can be
+data/processed/windows.csv, so models trained elsewhere (on a GPU server) can be
 evaluated here.
 """
 import json

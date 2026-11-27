@@ -1,16 +1,16 @@
 """Load the pre-processed data (src.prepare_data) and serve it to the models (MLP, CNN, RNN).
 
-Typical use in a training notebook:
+Use in a training notebook:
 
     from src.datasets import load_processed, fold_masks, mlp_arrays, CNNWindows
     d = load_processed()
-    tr, va, te = fold_masks(d.windows, val_fold=0)          # boolean masks over windows
+    tr, va, te = fold_masks(d.windows, val_fold=0)           # boolean masks over windows
 
     # MLP
-    Xtr, ytr, Xva, yva, scaler = mlp_arrays(d, tr, va)      # standardised with train stats
+    Xtr, ytr, Xva, yva, scaler = mlp_arrays(d, tr, va)       # standardised with train stats
 
     # CNN (torch)
-    band_stats = mel_band_stats(d, tr)                      # train-only mean/std per mel band
+    band_stats = mel_band_stats(d, tr)                       # train-only mean/std per mel band
     ds_tr = CNNWindows(d, tr, band_stats, random_crop=True)  # augmentation: random time offset
     ds_va = CNNWindows(d, va, band_stats)
 

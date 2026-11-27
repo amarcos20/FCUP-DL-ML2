@@ -1,12 +1,12 @@
 """Compare runs and groups of seeds, with every number recomputed from results/<run>/oof.csv (not taken from
-cv_summary.json; a mismatch between the two is flagged).
+cv_summary.json).
 
 Groups are separated by spaces, runs of a group by commas. The first group is the reference.
 
     python -m src.compare_runs cnn,cnn_s1,cnn_s2,cnn_s3 cnn_noaug_s42,cnn_noaug_s1,cnn_noaug_s2,cnn_noaug_s3
     python -m src.compare_runs rnn,rnn_s1,rnn_s2,rnn_s3 rnn_demo_s42,rnn_demo_s1,rnn_demo_s2,rnn_demo_s3
 
-Per run: WA mean ± sd over the 5 folds (nested thresholds), pooled WA, recall per class, AUC Present / Unknown.
+Per run: WA mean ± sd over the 5 folds (nested thresholds), pooled WA, recall per class, AUC Present/Unknown.
 Per group: mean ± sd of the WA over its seeds, the WA of the group ensemble (mean of its oof.csv), and, against
 the reference, the adoption rule of the project (mean WA +0.02 and better in >= 4/5 folds, with the per-fold WA
 averaged over the seeds). --json saves everything.
